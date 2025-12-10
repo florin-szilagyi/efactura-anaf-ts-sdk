@@ -64,18 +64,7 @@ function buildPartyXml(root: XMLBuilder, tagName: string, party: Party): void {
     .up()
     .up();
 
-  // Party Legal Entity
-  partyElement
-    .ele('cac:PartyLegalEntity')
-    .ele('cbc:RegistrationName')
-    .txt(party.registrationName)
-    .up()
-    .ele('cbc:CompanyID')
-    .txt(party.companyId)
-    .up()
-    .up();
-
-  // Party Tax Scheme (if VAT number provided)
+  // Party Tax Scheme (if VAT number provided) - MUST come before PartyLegalEntity per UBL schema
   if (party.vatNumber) {
     partyElement
       .ele('cac:PartyTaxScheme')
@@ -89,6 +78,17 @@ function buildPartyXml(root: XMLBuilder, tagName: string, party: Party): void {
       .up()
       .up();
   }
+
+  // Party Legal Entity
+  partyElement
+    .ele('cac:PartyLegalEntity')
+    .ele('cbc:RegistrationName')
+    .txt(party.registrationName)
+    .up()
+    .ele('cbc:CompanyID')
+    .txt(party.companyId)
+    .up()
+    .up();
 }
 
 /**

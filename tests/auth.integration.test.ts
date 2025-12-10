@@ -313,7 +313,6 @@ describe('ANAF OAuth Authentication & API Client', () => {
   describe('Token Refresh', () => {
     test('should refresh access token if tokens exist', async () => {
       const tokens = await loadTokens();
-      console.log('tokens', tokens);
 
       if (!tokens || !tokens.refresh_token) {
         console.log('\n⚠️ SKIPPING: No refresh token found. Complete OAuth flow first.');
