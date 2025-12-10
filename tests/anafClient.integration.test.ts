@@ -31,7 +31,7 @@ describe('AnafEfacturaClient Integration Tests', () => {
   const tokenFilePath = path.join(process.cwd(), 'token.secret');
 
   // Test data
-  const testVatNumber = 'RO12345678';
+  const testVatNumber = '12345678';
   const testInvoiceData: InvoiceInput = {
     invoiceNumber: `TEST-${Date.now()}`,
     issueDate: new Date(),
