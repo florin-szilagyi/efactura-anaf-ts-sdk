@@ -31,7 +31,11 @@ describe('AnafEfacturaClient Integration Tests', () => {
   const tokenFilePath = path.join(process.cwd(), 'token.secret');
 
   // Test data
-  const testVatNumber = '46509364';
+  const testVatNumber = process.env.ANAF_TEST_VAT_NUMBER;
+  if (!testVatNumber) {
+    throw new Error('ANAF_TEST_VAT_NUMBER environment variable is not set');
+  }
+
   const testInvoiceData: InvoiceInput = {
     invoiceNumber: `TEST-${Date.now()}`,
     issueDate: new Date(),
@@ -67,8 +71,8 @@ describe('AnafEfacturaClient Integration Tests', () => {
 
   beforeAll(async () => {
     // Skip integration tests if credentials are not available
-    if (!process.env.ANAF_CLIENT_ID || !process.env.ANAF_CLIENT_SECRET) {
-      console.log('⚠️ Skipping integration tests - missing OAuth credentials');
+    if (!process.env.ANAF_CLIENT_ID || !process.env.ANAF_CLIENT_SECRET || !process.env.ANAF_TEST_VAT_NUMBER) {
+      console.log('⚠️ Skipping integration tests - missing OAuth credentials or test VAT number');
       return;
     }
 

@@ -29,4 +29,5 @@ if (process.env.NODE_ENV === 'test') {
   console.log(`📊 OAuth Client ID: ${process.env.ANAF_CLIENT_ID ? '✅ Set' : '❌ Missing'}`);
   console.log(`🔐 OAuth Client Secret: ${process.env.ANAF_CLIENT_SECRET ? '✅ Set' : '❌ Missing'}`);
   console.log(`🔗 Callback URL: ${process.env.ANAF_CALLBACK_URL}`);
+  console.log(`🏦 Test VAT Number: ${process.env.ANAF_TEST_VAT_NUMBER ? '✅ Set' : '❌ Missing'}`);
 }
