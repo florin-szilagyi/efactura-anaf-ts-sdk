@@ -240,12 +240,10 @@ describe('ANAF OAuth Authentication & API Client', () => {
 
       // Automatically open browser
       console.log(`🌐 Opening ${authUrl}`);
-      const { error } = await tryCatch(
-        (async () => {
-          await openBrowser(authUrl);
-          console.log('✅ Browser opened successfully');
-        })()
-      );
+      const { error } = await tryCatch(async () => {
+        await openBrowser(authUrl);
+        console.log('✅ Browser opened successfully');
+      });
       if (error) {
         console.error('⚠️ Failed to open browser automatically: ', error);
         console.log('💡 Please manually copy and paste the URL above into your browser');
@@ -260,17 +258,15 @@ describe('ANAF OAuth Authentication & API Client', () => {
       // Wait for auth code with timeout
       const timeoutMs = 180000; // 3 minutes for USB token interaction
 
-      const { data: authCode, error: authCodeError } = await tryCatch(
-        (async () => {
-          return await Promise.race([
-            authCodePromise,
-            new Promise<never>((_, reject) => {
-              const timeoutId = setTimeout(() => reject(new Error('OAuth timeout')), timeoutMs);
-              authCodePromise?.then(() => clearTimeout(timeoutId)).catch(() => clearTimeout(timeoutId));
-            }),
-          ]);
-        })()
-      );
+      const { data: authCode, error: authCodeError } = await tryCatch(async () => {
+        return await Promise.race([
+          authCodePromise,
+          new Promise<never>((_, reject) => {
+            const timeoutId = setTimeout(() => reject(new Error('OAuth timeout')), timeoutMs);
+            authCodePromise?.then(() => clearTimeout(timeoutId)).catch(() => clearTimeout(timeoutId));
+          }),
+        ]);
+      });
       if (authCodeError || !authCode) {
         console.error('⚠️ Error while waiting for OAuth authorization:', authCodeError);
         throw authCodeError;
@@ -278,30 +274,28 @@ describe('ANAF OAuth Authentication & API Client', () => {
 
       console.log('\n🔄 Exchanging authorization code for tokens...');
 
-      const { data: tokens, error: exchangeError } = await tryCatch(
-        (async () => {
-          const tokens = await authenticator.exchangeCodeForToken(authCode);
+      const { data: tokens, error: exchangeError } = await tryCatch(async () => {
+        const tokens = await authenticator.exchangeCodeForToken(authCode);
 
-          expect(tokens).toBeDefined();
-          expect(tokens.access_token).toBeTruthy();
-          expect(tokens.refresh_token).toBeTruthy();
-          expect(tokens.expires_in).toBeGreaterThan(0);
-          expect(tokens.token_type).toBe('Bearer');
+        expect(tokens).toBeDefined();
+        expect(tokens.access_token).toBeTruthy();
+        expect(tokens.refresh_token).toBeTruthy();
+        expect(tokens.expires_in).toBeGreaterThan(0);
+        expect(tokens.token_type).toBe('Bearer');
 
-          // Save tokens for future tests
-          await saveTokens(tokens);
+        // Save tokens for future tests
+        await saveTokens(tokens);
 
-          console.log(
-            '✅ Token exchange successful!\n' +
-              `🔑 Access token: ${tokens.access_token.substring(0, 30)}...\n` +
-              `🔄 Refresh token: ${tokens.refresh_token.substring(0, 30)}...\n` +
-              `⏰ Expires in: ${tokens.expires_in} seconds (${Math.round(tokens.expires_in / 60)} minutes)\n` +
-              `💾 Tokens saved to: ${tokenFilePath}`
-          );
+        console.log(
+          '✅ Token exchange successful!\n' +
+            `🔑 Access token: ${tokens.access_token.substring(0, 30)}...\n` +
+            `🔄 Refresh token: ${tokens.refresh_token.substring(0, 30)}...\n` +
+            `⏰ Expires in: ${tokens.expires_in} seconds (${Math.round(tokens.expires_in / 60)} minutes)\n` +
+            `💾 Tokens saved to: ${tokenFilePath}`
+        );
 
-          return tokens;
-        })()
-      );
+        return tokens;
+      });
 
       if (exchangeError) {
         console.error(`❌ Token exchange failed: ${exchangeError}`);
@@ -321,40 +315,38 @@ describe('ANAF OAuth Authentication & API Client', () => {
 
       console.log('\n🔄 Testing token refresh...');
 
-      const { data: newTokens, error: refreshError } = await tryCatch(
-        (async () => {
-          const newTokens = await authenticator.refreshAccessToken(tokens.refresh_token);
+      const { data: newTokens, error: refreshError } = await tryCatch(async () => {
+        const newTokens = await authenticator.refreshAccessToken(tokens.refresh_token);
 
-          expect(newTokens).toBeDefined();
-          expect(newTokens.access_token).toBeTruthy();
-          expect(newTokens.refresh_token).toBeTruthy();
-          expect(newTokens.expires_in).toBeGreaterThan(0);
-          expect(newTokens.token_type).toBe('Bearer');
+        expect(newTokens).toBeDefined();
+        expect(newTokens.access_token).toBeTruthy();
+        expect(newTokens.refresh_token).toBeTruthy();
+        expect(newTokens.expires_in).toBeGreaterThan(0);
+        expect(newTokens.token_type).toBe('Bearer');
 
-          // Should be different from original
-          // expect(newTokens.access_token).not.toBe(tokens.access_token);
+        // Should be different from original
+        // expect(newTokens.access_token).not.toBe(tokens.access_token);
 
-          // Because we are doing the oauth flow in the same test, the access token may be the same.
-          if (newTokens.access_token === tokens.access_token) {
-            console.log('ℹ️ Access token unchanged (ANAF may return same token if recently issued)');
-          } else {
-            console.log('✅ Access token changed after refresh');
-          }
+        // Because we are doing the oauth flow in the same test, the access token may be the same.
+        if (newTokens.access_token === tokens.access_token) {
+          console.log('ℹ️ Access token unchanged (ANAF may return same token if recently issued)');
+        } else {
+          console.log('✅ Access token changed after refresh');
+        }
 
-          // Save updated tokens
-          await saveTokens(newTokens);
+        // Save updated tokens
+        await saveTokens(newTokens);
 
-          console.log(
-            '✅ Token refresh successful!\n' +
-              `🔑 New access token: ${newTokens.access_token.substring(0, 30)}...\n` +
-              `🔄 New refresh token: ${newTokens.refresh_token.substring(0, 30)}...\n` +
-              `⏰ Expires in: ${newTokens.expires_in} seconds\n` +
-              `💾 Updated tokens saved to: ${tokenFilePath}`
-          );
+        console.log(
+          '✅ Token refresh successful!\n' +
+            `🔑 New access token: ${newTokens.access_token.substring(0, 30)}...\n` +
+            `🔄 New refresh token: ${newTokens.refresh_token.substring(0, 30)}...\n` +
+            `⏰ Expires in: ${newTokens.expires_in} seconds\n` +
+            `💾 Updated tokens saved to: ${tokenFilePath}`
+        );
 
-          return newTokens;
-        })()
-      );
+        return newTokens;
+      });
 
       if (refreshError) {
         console.error(`❌ Token refresh failed: ${refreshError}`);
@@ -430,13 +422,11 @@ describe('ANAF OAuth Authentication & API Client', () => {
       }
 
       // Try to decode JWT payload
-      const { error: jwtError } = await tryCatch(
-        (async () => {
-          const payload = decodeJWT(tokens.access_token);
-          console.log('\n📜 JWT Payload:');
-          console.log(JSON.stringify(payload, null, 2));
-        })()
-      );
+      const { error: jwtError } = await tryCatch(async () => {
+        const payload = decodeJWT(tokens.access_token);
+        console.log('\n📜 JWT Payload:');
+        console.log(JSON.stringify(payload, null, 2));
+      });
       if (jwtError) {
         console.log('\n⚠️ Could not decode JWT payload');
       }
@@ -495,29 +485,27 @@ describe('ANAF OAuth Authentication & API Client', () => {
   }
 
   async function loadTokens(): Promise<(TokenResponse & { obtained_at?: number; expires_at?: number }) | null> {
-    const { data, error } = await tryCatch(
-      (async () => {
-        // Check if file exists
-        if (!fs.existsSync(tokenFilePath)) {
-          return null;
-        }
+    const { data, error } = await tryCatch(async () => {
+      // Check if file exists
+      if (!fs.existsSync(tokenFilePath)) {
+        return null;
+      }
 
-        const tokenData = await fs.promises.readFile(tokenFilePath, 'utf-8');
+      const tokenData = await fs.promises.readFile(tokenFilePath, 'utf-8');
 
-        // Check if file is empty or contains only whitespace
-        if (!tokenData || tokenData.trim().length === 0) {
-          return null;
-        }
+      // Check if file is empty or contains only whitespace
+      if (!tokenData || tokenData.trim().length === 0) {
+        return null;
+      }
 
-        // Try to parse JSON
-        try {
-          return JSON.parse(tokenData);
-        } catch (parseError) {
-          console.log('⚠️ Invalid JSON in token file, ignoring...');
-          return null;
-        }
-      })()
-    );
+      // Try to parse JSON
+      try {
+        return JSON.parse(tokenData);
+      } catch (parseError) {
+        console.log('⚠️ Invalid JSON in token file, ignoring...');
+        return null;
+      }
+    });
     if (error) {
       return null;
     }

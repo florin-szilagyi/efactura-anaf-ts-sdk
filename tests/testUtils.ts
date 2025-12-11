@@ -198,14 +198,12 @@ export class TestTokenManager {
   }
 
   static async deleteTokens(): Promise<void> {
-    const { data, error } = await tryCatch(
-      (async () => {
-        if (fs.existsSync(this.tokenFilePath)) {
-          fs.unlinkSync(this.tokenFilePath);
-          console.log('🗑️ Tokens deleted');
-        }
-      })()
-    );
+    const { data, error } = await tryCatch(async () => {
+      if (fs.existsSync(this.tokenFilePath)) {
+        fs.unlinkSync(this.tokenFilePath);
+        console.log('🗑️ Tokens deleted');
+      }
+    });
     if (error) {
       console.log('Could not delete tokens:', error);
     }

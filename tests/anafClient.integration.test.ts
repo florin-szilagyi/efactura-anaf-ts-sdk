@@ -105,15 +105,13 @@ describeIntegration('AnafEfacturaClient Integration Tests', () => {
       accessToken = tokens.access_token;
       console.log('✅ Using existing valid access token');
     } else if (tokens?.refresh_token) {
-      const { data, error } = await tryCatch(
-        (async () => {
-          console.log('🔄 Refreshing expired token...');
-          const newTokens = await authenticator.refreshAccessToken(tokens.refresh_token);
-          accessToken = newTokens.access_token;
-          await saveTokens(newTokens);
-          console.log('✅ Token refreshed successfully');
-        })()
-      );
+      const { data, error } = await tryCatch(async () => {
+        console.log('🔄 Refreshing expired token...');
+        const newTokens = await authenticator.refreshAccessToken(tokens.refresh_token);
+        accessToken = newTokens.access_token;
+        await saveTokens(newTokens);
+        console.log('✅ Token refreshed successfully');
+      });
       if (error) {
         console.log('❌ Token refresh failed, need new authentication');
         throw new Error('Integration tests require valid OAuth tokens. Run auth tests first.');
@@ -571,29 +569,27 @@ describeIntegration('AnafEfacturaClient Integration Tests', () => {
 
   // Helper functions
   async function loadTokens(): Promise<(TokenResponse & { obtained_at?: number; expires_at?: number }) | null> {
-    const { data, error } = await tryCatch(
-      (async () => {
-        // Check if file exists
-        if (!fs.existsSync(tokenFilePath)) {
-          return null;
-        }
+    const { data, error } = await tryCatch(async () => {
+      // Check if file exists
+      if (!fs.existsSync(tokenFilePath)) {
+        return null;
+      }
 
-        const tokenData = fs.readFileSync(tokenFilePath, 'utf8');
+      const tokenData = fs.readFileSync(tokenFilePath, 'utf8');
 
-        // Check if file is empty or contains only whitespace
-        if (!tokenData || tokenData.trim().length === 0) {
-          return null;
-        }
+      // Check if file is empty or contains only whitespace
+      if (!tokenData || tokenData.trim().length === 0) {
+        return null;
+      }
 
-        // Try to parse JSON
-        try {
-          return JSON.parse(tokenData);
-        } catch (parseError) {
-          console.log('⚠️ Invalid JSON in token file, ignoring...');
-          return null;
-        }
-      })()
-    );
+      // Try to parse JSON
+      try {
+        return JSON.parse(tokenData);
+      } catch (parseError) {
+        console.log('⚠️ Invalid JSON in token file, ignoring...');
+        return null;
+      }
+    });
     if (error) {
       console.log('Could not load tokens:', error);
     }
