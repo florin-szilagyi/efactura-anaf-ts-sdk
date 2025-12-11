@@ -165,32 +165,26 @@ export class TestTokenManager {
   private static tokenFilePath = path.join(process.cwd(), 'token.secret');
 
   static async loadTokens(): Promise<(TokenResponse & { obtained_at?: number; expires_at?: number }) | null> {
-    const { data, error } = tryCatch(async () => {
-      // Check if file exists
+    try {
       if (!fs.existsSync(this.tokenFilePath)) {
         return null;
       }
 
       const tokenData = fs.readFileSync(this.tokenFilePath, 'utf8');
-
-      // Check if file is empty or contains only whitespace
       if (!tokenData || tokenData.trim().length === 0) {
         return null;
       }
 
-      // Try to parse JSON
       try {
         return JSON.parse(tokenData);
-      } catch (parseError) {
+      } catch {
         console.log('⚠️ Invalid JSON in token file, ignoring...');
         return null;
       }
-    });
-
-    if (error) {
+    } catch (error) {
       console.log('Could not load tokens:', error);
+      return null;
     }
-    return data;
   }
 
   static async saveTokens(tokens: TokenResponse): Promise<void> {
