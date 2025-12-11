@@ -99,46 +99,50 @@ describe('AnafEfacturaClient Unit Tests', () => {
       // Test with RO prefix (uppercase)
       const clientWithRO = new AnafEfacturaClient(
         {
-          vatNumber: 'RO46509364',
+          vatNumber: 'RO12345678',
           testMode: true,
           refreshToken: 'mock_refresh_token',
         },
         mockAuthenticator
       );
       expect(clientWithRO).toBeDefined();
+      expect(clientWithRO.getVatNumber()).toBe('12345678');
 
       // Test with ro prefix (lowercase)
       const clientWithRoLowercase = new AnafEfacturaClient(
         {
-          vatNumber: 'ro46509364',
+          vatNumber: 'ro12345678',
           testMode: true,
           refreshToken: 'mock_refresh_token',
         },
         mockAuthenticator
       );
       expect(clientWithRoLowercase).toBeDefined();
+      expect(clientWithRoLowercase.getVatNumber()).toBe('12345678');
 
       // Test with RO prefix and extra spaces
       const clientWithROAndSpaces = new AnafEfacturaClient(
         {
-          vatNumber: '  RO46509364  ',
+          vatNumber: '  RO12345678  ',
           testMode: true,
           refreshToken: 'mock_refresh_token',
         },
         mockAuthenticator
       );
       expect(clientWithROAndSpaces).toBeDefined();
+      expect(clientWithROAndSpaces.getVatNumber()).toBe('12345678');
 
       // Test without RO prefix (should work as before)
       const clientWithoutRO = new AnafEfacturaClient(
         {
-          vatNumber: '46509364',
+          vatNumber: '12345678',
           testMode: true,
           refreshToken: 'mock_refresh_token',
         },
         mockAuthenticator
       );
       expect(clientWithoutRO).toBeDefined();
+      expect(clientWithoutRO.getVatNumber()).toBe('12345678');
     });
 
     test('should send normalized VAT number in API requests', async () => {
@@ -146,7 +150,7 @@ describe('AnafEfacturaClient Unit Tests', () => {
 
       const clientWithRO = new AnafEfacturaClient(
         {
-          vatNumber: 'RO46509364',
+          vatNumber: 'RO12345678',
           testMode: true,
           refreshToken: 'mock_refresh_token',
         },
@@ -165,8 +169,8 @@ describe('AnafEfacturaClient Unit Tests', () => {
       await clientWithRO.uploadDocument(xmlContent);
 
       // Verify the URL contains the normalized CIF without RO prefix
-      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('cif=46509364'), expect.any(Object));
-      expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining('cif=RO46509364'), expect.any(Object));
+      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('cif=12345678'), expect.any(Object));
+      expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining('cif=RO12345678'), expect.any(Object));
     });
   });
 

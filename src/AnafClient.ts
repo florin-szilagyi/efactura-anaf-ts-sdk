@@ -625,6 +625,16 @@ export class AnafEfacturaClient {
   }
 
   /**
+   * Get the normalized VAT number
+   * Returns the VAT number as stored internally (without RO prefix)
+   *
+   * @returns Normalized VAT number
+   */
+  public getVatNumber(): string {
+    return this.config.vatNumber;
+  }
+
+  /**
    * Get a valid access token, refreshing if necessary
    * @returns A valid access token
    * @throws {AnafAuthenticationError} If token refresh fails
