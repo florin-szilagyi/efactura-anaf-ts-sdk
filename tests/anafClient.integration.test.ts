@@ -24,17 +24,24 @@ import { tryCatch } from '../src/tryCatch';
 // Load environment variables
 dotenv.config();
 
-describe('AnafEfacturaClient Integration Tests', () => {
+// Check if integration tests should run
+const shouldRunIntegrationTests =
+  !!process.env.ANAF_CLIENT_ID && !!process.env.ANAF_CLIENT_SECRET && !!process.env.ANAF_TEST_VAT_NUMBER;
+
+const describeIntegration = shouldRunIntegrationTests ? describe : describe.skip;
+
+if (!shouldRunIntegrationTests) {
+  console.log('⚠️ Skipping integration tests - missing OAuth credentials or test VAT number');
+}
+
+describeIntegration('AnafEfacturaClient Integration Tests', () => {
   let client: AnafEfacturaClient;
   let authenticator: AnafAuthenticator;
   let accessToken: string;
   const tokenFilePath = path.join(process.cwd(), 'token.secret');
 
   // Test data
-  const testVatNumber = process.env.ANAF_TEST_VAT_NUMBER;
-  if (!testVatNumber) {
-    throw new Error('ANAF_TEST_VAT_NUMBER environment variable is not set');
-  }
+  const testVatNumber = process.env.ANAF_TEST_VAT_NUMBER || '';
 
   const testInvoiceData: InvoiceInput = {
     invoiceNumber: `TEST-${Date.now()}`,
@@ -70,12 +77,6 @@ describe('AnafEfacturaClient Integration Tests', () => {
   };
 
   beforeAll(async () => {
-    // Skip integration tests if credentials are not available
-    if (!process.env.ANAF_CLIENT_ID || !process.env.ANAF_CLIENT_SECRET || !process.env.ANAF_TEST_VAT_NUMBER) {
-      console.log('⚠️ Skipping integration tests - missing OAuth credentials or test VAT number');
-      return;
-    }
-
     // Setup authenticator
     authenticator = new AnafAuthenticator({
       clientId: process.env.ANAF_CLIENT_ID!,
