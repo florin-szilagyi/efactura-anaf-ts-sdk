@@ -641,18 +641,6 @@ try {
 }
 ```
 
-### Common Errors and Solutions
-
-**CIF Error: "CIF introdus= RO46509364 nu este un numar"**
-
-This error occurs when the VAT number includes the "RO" prefix, which ANAF API doesn't accept. The SDK automatically handles this by removing the "RO" prefix, so you can provide either format:
-
-```typescript
-// Both of these work identically:
-const client1 = new AnafEfacturaClient({ vatNumber: 'RO12345678', ... }, authenticator);
-const client2 = new AnafEfacturaClient({ vatNumber: '12345678', ... }, authenticator);
-```
-
 ## TypeScript Support
 
 The SDK is written in TypeScript and provides comprehensive type definitions:
