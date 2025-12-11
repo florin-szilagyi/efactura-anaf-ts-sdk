@@ -1,4 +1,4 @@
-# ANAF e-Factura TypeScript SDK
+# ANAF e-Factura TypeScript SDK (anaf-ts-sdk)
 
 A comprehensive TypeScript SDK for interacting with the Romanian ANAF e-Factura system. This SDK provides OAuth 2.0 authentication, document upload/download, validation, UBL generation, and company data lookup capabilities.
 
@@ -16,7 +16,7 @@ A comprehensive TypeScript SDK for interacting with the Romanian ANAF e-Factura 
 ## Installation
 
 ```bash
-pnpm add efactura-ts-sdk
+pnpm add anaf-ts-sdk
 ```
 
 ## Quick Start
@@ -26,67 +26,82 @@ The SDK is organized into four main classes:
 ### 1. AnafAuthenticator - OAuth 2.0 Authentication
 
 ```typescript
-import { AnafAuthenticator } from 'efactura-ts-sdk';
+import { AnafAuthenticator } from 'anaf-ts-sdk';
 
-const auth = new AnafAuthenticator({
+const authenticator = new AnafAuthenticator({
   clientId: 'your-oauth-client-id',
   clientSecret: 'your-oauth-client-secret',
   redirectUri: 'https://your-app.com/oauth/callback',
+  testMode: true, // Test environment for development
 });
 
 // Get authorization URL (user will authenticate with USB token)
-const authUrl = auth.getAuthorizationUrl();
+const authUrl = authenticator.getAuthorizationUrl();
 console.log('Redirect user to:', authUrl);
 
 // Exchange authorization code for tokens
-const tokens = await auth.exchangeCodeForToken(authorizationCode);
+const tokens = await authenticator.exchangeCodeForToken(authorizationCode);
 console.log('Access token:', tokens.access_token);
+console.log('Refresh token:', tokens.refresh_token);
 
 // Refresh tokens when needed
-const newTokens = await auth.refreshAccessToken(tokens.refresh_token);
+const newTokens = await authenticator.refreshAccessToken(tokens.refresh_token);
 ```
 
-### 2. AnafClient - API Operations
+### 2. AnafEfacturaClient - API Operations with Automatic Token Management
 
 ```typescript
-import { AnafClient } from 'efactura-ts-sdk';
+import { AnafEfacturaClient, AnafAuthenticator } from 'anaf-ts-sdk';
 
-const client = new AnafClient({
-  vatNumber: 'RO12345678',
-  testMode: true, // Use test environment
+// Create authenticator
+const authenticator = new AnafAuthenticator({
+  clientId: 'your-oauth-client-id',
+  clientSecret: 'your-oauth-client-secret',
+  redirectUri: 'https://your-app.com/oauth/callback',
+  testMode: true, // Test environment for development
 });
 
-// Upload a document
-const uploadResult = await client.uploadDocument(tokens.access_token, xmlContent, {
+// Create client with automatic token management
+const client = new AnafEfacturaClient(
+  {
+    vatNumber: 'RO12345678',
+    testMode: true, // Test environment for development
+    refreshToken: tokens.refresh_token, // From initial OAuth flow
+  },
+  authenticator
+);
+
+// Upload a document (token automatically managed)
+const uploadResult = await client.uploadDocument(xmlContent, {
   standard: 'UBL',
   executare: true,
 });
 
 // Check upload status
-const status = await client.getUploadStatus(tokens.access_token, uploadResult.index_incarcare);
+const status = await client.getUploadStatus(uploadResult.indexIncarcare);
 
 // Download processed document
-if (status.id_descarcare) {
-  const result = await client.downloadDocument(tokens.access_token, status.id_descarcare);
+if (status.stare === 'ok' && status.idDescarcare) {
+  const result = await client.downloadDocument(status.idDescarcare);
 }
 
 // List recent messages
-const messages = await client.getMessages(tokens.access_token, {
+const messages = await client.getMessages({
   zile: 7, // Last 7 days
   filtru: 'E', // Only errors
 });
 
 // Validate XML
-const validation = await client.validateXml(tokens.access_token, xmlContent, 'FACT1');
+const validation = await client.validateXml(xmlContent, 'FACT1');
 
 // Convert XML to PDF
-const pdfBuffer = await client.convertXmlToPdf(tokens.access_token, xmlContent, 'FACT1');
+const pdfBuffer = await client.convertXmlToPdf(xmlContent, 'FACT1');
 ```
 
 ### 3. UblBuilder - UBL XML Generation
 
 ```typescript
-import { UblBuilder } from 'efactura-ts-sdk';
+import { UblBuilder } from 'anaf-ts-sdk';
 
 const builder = new UblBuilder();
 
@@ -127,7 +142,7 @@ const xml = builder.generateInvoiceXml({
 ### 4. AnafDetailsClient - Company Data Lookup
 
 ```typescript
-import { AnafDetailsClient } from 'efactura-ts-sdk';
+import { AnafDetailsClient } from 'anaf-ts-sdk';
 
 const detailsClient = new AnafDetailsClient({
   timeout: 30000,
@@ -211,35 +226,40 @@ const minimalClient = new AnafDetailsClient({
 ## Complete Example
 
 ```typescript
-import { AnafAuthenticator, AnafClient, AnafDetailsClient, UblBuilder } from 'efactura-ts-sdk';
+import { AnafAuthenticator, AnafEfacturaClient, AnafDetailsClient, UblBuilder } from 'anaf-ts-sdk';
 
-// Setup
-const auth = new AnafAuthenticator({
+// 1. Setup Authenticator
+const authenticator = new AnafAuthenticator({
   clientId: process.env.ANAF_CLIENT_ID,
   clientSecret: process.env.ANAF_CLIENT_SECRET,
   redirectUri: 'https://myapp.com/oauth/callback',
+  testMode: true, // Test environment for development
 });
 
-const client = new AnafClient({
-  vatNumber: 'RO12345678',
-  testMode: true,
-});
-
+// 2. Get customer company data (no authentication required)
 const detailsClient = new AnafDetailsClient();
-const builder = new UblBuilder();
-
-// 1. Get customer company data
 const customerData = await detailsClient.getCompanyData('RO87654321');
 if (!customerData.success) {
   throw new Error(`Customer not found: ${customerData.error}`);
 }
 
-// 2. Authentication (one-time setup)
-const authUrl = auth.getAuthorizationUrl();
+// 3. Authentication (one-time setup)
+const authUrl = authenticator.getAuthorizationUrl();
 // Direct user to authUrl, they authenticate with USB token
-const tokens = await auth.exchangeCodeForToken(authCode);
+const tokens = await authenticator.exchangeCodeForToken(authCode);
 
-// 3. Generate invoice XML using fetched company data
+// 4. Setup client with automatic token management
+const client = new AnafEfacturaClient(
+  {
+    vatNumber: 'RO12345678',
+    testMode: true, // Test environment for development
+    refreshToken: tokens.refresh_token, // Store securely and reuse
+  },
+  authenticator
+);
+
+// 5. Generate invoice XML using fetched company data
+const builder = new UblBuilder();
 const xml = builder.generateInvoiceXml({
   invoiceNumber: 'INV-2024-001',
   issueDate: new Date(),
@@ -274,15 +294,15 @@ const xml = builder.generateInvoiceXml({
   isSupplierVatPayer: true,
 });
 
-// 4. Upload to ANAF
-const uploadResult = await client.uploadDocument(tokens.access_token, xml);
+// 6. Upload to ANAF (token automatically managed and refreshed)
+const uploadResult = await client.uploadDocument(xml);
 
-// 5. Monitor status
-const status = await client.getUploadStatus(tokens.access_token, uploadResult.index_incarcare);
+// 7. Monitor status
+const status = await client.getUploadStatus(uploadResult.indexIncarcare);
 
-// 6. Download result
-if (status.id_descarcare) {
-  const result = await client.downloadDocument(tokens.access_token, status.id_descarcare);
+// 8. Download result
+if (status.stare === 'ok' && status.idDescarcare) {
+  const result = await client.downloadDocument(status.idDescarcare);
 }
 ```
 
@@ -339,10 +359,11 @@ For local testing, you need a public HTTPS URL for OAuth callbacks:
    - Update your AnafAuthenticator configuration:
 
    ```typescript
-   const auth = new AnafAuthenticator({
+   const authenticator = new AnafAuthenticator({
      clientId: process.env.ANAF_CLIENT_ID,
      clientSecret: process.env.ANAF_CLIENT_SECRET,
      redirectUri: 'https://abc123.ngrok.io/oauth/callback', // Your ngrok URL
+     testMode: true, // Test environment for development
    });
    ```
 
@@ -353,7 +374,7 @@ The complete OAuth flow with USB token authentication:
 1. **Generate Authorization URL**:
 
    ```typescript
-   const authUrl = auth.getAuthorizationUrl();
+   const authUrl = authenticator.getAuthorizationUrl();
    console.log('Direct user to:', authUrl);
    ```
 
@@ -376,8 +397,8 @@ The complete OAuth flow with USB token authentication:
      const { code } = req.query;
 
      try {
-       const tokens = await auth.exchangeCodeForToken(code);
-       // Store tokens securely
+       const tokens = await authenticator.exchangeCodeForToken(code);
+       // Store tokens securely (especially refresh_token)
        res.send('Authentication successful!');
      } catch (error) {
        res.status(400).send('Authentication failed');
@@ -385,18 +406,27 @@ The complete OAuth flow with USB token authentication:
    });
    ```
 
-4. **Use Access Token**:
+4. **Create Client with Automatic Token Management**:
 
    ```typescript
-   // Token is valid for 1 hour
-   const client = new AnafClient({ vatNumber: 'RO12345678' });
-   const result = await client.uploadDocument(tokens.access_token, xmlContent);
+   // Client automatically manages access tokens using the refresh token
+   const client = new AnafEfacturaClient(
+     {
+       vatNumber: 'RO12345678',
+       testMode: true, // Test environment for development
+       refreshToken: tokens.refresh_token, // Store and reuse this
+     },
+     authenticator
+   );
+
+   // Upload document - token automatically refreshed if needed
+   const result = await client.uploadDocument(xmlContent);
    ```
 
-5. **Refresh Tokens**:
+5. **Manual Token Refresh** (if needed):
    ```typescript
-   // Refresh before expiration
-   const newTokens = await auth.refreshAccessToken(tokens.refresh_token);
+   // Manually refresh tokens if needed
+   const newTokens = await authenticator.refreshAccessToken(tokens.refresh_token);
    ```
 
 ### Automated Testing
@@ -551,16 +581,38 @@ The SDK supports both test and production environments:
 
 ```typescript
 // Test environment (recommended for development)
-const client = new AnafClient({
-  vatNumber: 'RO12345678',
-  testMode: true,
+const authenticator = new AnafAuthenticator({
+  clientId: process.env.ANAF_CLIENT_ID,
+  clientSecret: process.env.ANAF_CLIENT_SECRET,
+  redirectUri: 'https://your-app.com/callback',
+  testMode: true, // Test environment for development
 });
 
+const client = new AnafEfacturaClient(
+  {
+    vatNumber: 'RO12345678',
+    testMode: true, // Test environment for development
+    refreshToken: yourRefreshToken,
+  },
+  authenticator
+);
+
 // Production environment
-const client = new AnafClient({
-  vatNumber: 'RO12345678',
-  testMode: false,
+const prodAuthenticator = new AnafAuthenticator({
+  clientId: process.env.ANAF_CLIENT_ID,
+  clientSecret: process.env.ANAF_CLIENT_SECRET,
+  redirectUri: 'https://your-app.com/callback',
+  testMode: false, // Production environment
 });
+
+const prodClient = new AnafEfacturaClient(
+  {
+    vatNumber: 'RO12345678',
+    testMode: false, // Production environment
+    refreshToken: yourRefreshToken,
+  },
+  prodAuthenticator
+);
 ```
 
 ## Error Handling
@@ -568,13 +620,14 @@ const client = new AnafClient({
 The SDK provides specific error types for different scenarios:
 
 ```typescript
-import { AnafAuthenticationError, AnafValidationError, AnafApiError } from 'efactura-ts-sdk';
+import { AnafAuthenticationError, AnafValidationError, AnafApiError } from 'anaf-ts-sdk';
 
 try {
-  await client.uploadDocument(token, xml);
+  // Client automatically manages tokens, but may still throw auth errors
+  await client.uploadDocument(xml);
 } catch (error) {
   if (error instanceof AnafAuthenticationError) {
-    // Handle authentication issues - refresh token or re-authenticate
+    // Handle authentication issues - may need new refresh token
     console.log('Authentication failed:', error.message);
   } else if (error instanceof AnafValidationError) {
     // Handle validation errors - fix XML or parameters
@@ -591,7 +644,7 @@ try {
 The SDK is written in TypeScript and provides comprehensive type definitions:
 
 ```typescript
-import type { InvoiceInput, UploadStatus, ListMessagesResponse, ValidationResult, OAuthTokens } from 'efactura-ts-sdk';
+import type { InvoiceInput, UploadStatus, ListMessagesResponse, ValidationResult, OAuthTokens } from 'anaf-ts-sdk';
 ```
 
 ## Security Best Practices
@@ -615,10 +668,21 @@ When deploying to production:
 2. **Environment Configuration**:
 
    ```typescript
-   const client = new AnafClient({
-     vatNumber: 'RO12345678',
-     testMode: false, // Production mode
+   const authenticator = new AnafAuthenticator({
+     clientId: process.env.ANAF_CLIENT_ID,
+     clientSecret: process.env.ANAF_CLIENT_SECRET,
+     redirectUri: 'https://your-production-domain.com/callback',
+     testMode: false, // Production environment
    });
+
+   const client = new AnafEfacturaClient(
+     {
+       vatNumber: 'RO12345678',
+       testMode: false, // Production environment
+       refreshToken: securelyStoredRefreshToken,
+     },
+     authenticator
+   );
    ```
 
 3. **Secure Callback Handling**:
