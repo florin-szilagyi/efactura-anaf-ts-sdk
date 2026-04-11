@@ -1,7 +1,7 @@
 import { CommanderError } from 'commander';
 import { buildProgram, type ServiceRegistry } from './buildProgram';
 import { ContextService, TokenStore } from '../state';
-import { LookupService, AuthService } from '../services';
+import { LookupService, AuthService, EfacturaService } from '../services';
 import {
   CliError,
   EXIT_CODES,
@@ -106,11 +106,18 @@ export async function runProgram(options: RunProgramOptions): Promise<void> {
     // as constructor args. `AuthService` requires both.
     const contextService = options.services?.contextService ?? new ContextService();
     const tokenStore = options.services?.tokenStore ?? new TokenStore();
+    // Hoist `authService` to a local so `efacturaService`'s default
+    // construction sees the same instance exposed through the registry.
+    // Without this the literal would evaluate `options.services?.authService`
+    // twice and default-construct two distinct AuthServices.
+    const authService = options.services?.authService ?? new AuthService({ contextService, tokenStore });
     const services: ServiceRegistry = {
       contextService,
       lookupService: options.services?.lookupService ?? new LookupService(),
       tokenStore,
-      authService: options.services?.authService ?? new AuthService({ contextService, tokenStore }),
+      authService,
+      efacturaService:
+        options.services?.efacturaService ?? new EfacturaService({ contextService, tokenStore, authService }),
     };
 
     const program = buildProgram({

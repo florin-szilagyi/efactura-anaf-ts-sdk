@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { CLI_NAME, CLI_VERSION } from '../version';
 import type { OutputContext } from '../output';
 import type { ContextService, TokenStore } from '../state';
-import type { LookupService, AuthService } from '../services';
+import type { LookupService, AuthService, EfacturaService } from '../services';
 import { attachGlobalFlags } from './flags';
 import { registerAuth } from './groups/auth';
 import { registerCtx } from './groups/ctx';
@@ -33,6 +33,7 @@ export interface ServiceRegistry {
   lookupService: LookupService;
   tokenStore: TokenStore;
   authService: AuthService;
+  efacturaService: EfacturaService;
 }
 
 export interface CommandDeps {
