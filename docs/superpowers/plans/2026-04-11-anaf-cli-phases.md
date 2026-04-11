@@ -376,9 +376,9 @@ Update this table as workstreams complete. Keep it short — one line per item.
 | P1.2 | CLI parser scaffold | 🟢 | `2026-04-11-anaf-cli-P1.2.md` | merged in `f35c02e` + fix `3dbf5d0`; cleared P1.3 NITs (barrel dispatch test, unknown-throw normalization); fix commit suppressed commander auto-error line for clean JSON envelope, classified commander codes by category, wrapped runProgram setup in try + bin last-resort catch |
 | P1.3 | Output layer | 🟢 | `2026-04-11-anaf-cli-P1.3.md` | merged in `c0e3fb5`; FROZEN API verified; NITs deferred to P1.2 (barrel dispatch test, unknown-throw normalization in bin) |
 | P1.4 | State layer | 🟢 | `2026-04-11-anaf-cli-P1.4.md` | merged in `b515b67`; FROZEN API verified; NITs deferred to v1.1 hardening (atomic writes via tmp+rename, `remove()` cascade ordering) |
-| P1.5 | auth commands | ⚪ | — | |
-| P1.6 | ctx commands | ⚪ | — | |
-| P1.7 | lookup + cache | ⚪ | — | |
+| P1.5 | auth commands | 🟢 | `2026-04-11-anaf-cli-P1.5.md` | merged in `4b4f5e2`; AuthService wraps `AnafAuthenticator`, persists rotation through TokenStore; live ANAF endpoint confirmed via sanity check #7 (HTTP 400 invalid_client → AUTH_FAILED); `auth login` is print-only (browser-open deferred); leaf-level `--context` shadowing workaround for global flag |
+| P1.6 | ctx commands | 🟢 | `2026-04-11-anaf-cli-P1.6.md` | merged in `b76e71d`; established service-registry merge pattern; added `ContextService.setCurrent()` |
+| P1.7 | lookup + cache | 🟢 | `2026-04-11-anaf-cli-P1.7.md` | merged in `bc3d327`; LookupService wraps `AnafDetailsClient` with read-through file cache; D1: SDK's `AnafCompanyResult` is not a discriminated union (workaround with `??` fallbacks) |
 | P2.1 | Action model | ⚪ | — | KEYSTONE — block on this |
 | P2.2 | UblService | ⚪ | — | |
 | P2.3 | ubl build cmd | ⚪ | — | |
