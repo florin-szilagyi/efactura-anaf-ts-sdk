@@ -391,12 +391,12 @@ Update this table as workstreams complete. Keep it short — one line per item.
 | P3.4 | Caching controls | 🟢 | inline | merged in `5616fe5`; `--no-cache` / `--refresh-cache` plumbed into lookup company; async lookup intentionally bypasses cache (design) |
 | P3.5 | Error model hardening | 🟢 | inline | merged in `adab551`; ERROR_CODES registry + isKnownErrorCode; category→exit mapping was already complete from P1.3 |
 | P3.6 | Manifest schemas + goldens | 🟢 | `2026-04-11-anaf-cli-manifest.md` | merged in `108a0ae`; hand-crafted JSON Schemas (draft-07); 4 YAML fixtures; zod-to-json-schema deferred to v1.1 |
-| P4.1 | esbuild bundle | ⚪ | — | |
-| P4.2 | Node SEA per platform | ⚪ | — | pin Node version here |
-| P4.3 | GH Release pipeline | ⚪ | — | |
-| P4.4 | Homebrew tap | ⚪ | — | |
-| P4.5 | npm publish | ⚪ | — | |
-| P4.6 | Install docs | ⚪ | — | |
+| P4.1 | esbuild bundle | 🟢 | inline (df35c4a) | `build` now chains `build:bundle`; cjs bundle smoke-tested |
+| P4.2 | Node SEA per platform | 🟢 | inline (df35c4a) | `scripts/build-sea.mjs` verified locally on darwin-arm64 (66 MB standalone, no Node needed); CI matrix darwin-arm64/x64 + linux-x64 |
+| P4.3 | GH Release pipeline | 🟢 | inline (df35c4a) | `.github/workflows/cli-release.yaml`; tag-triggered; builds artifacts + SHA256SUMS + draft Release |
+| P4.4 | Homebrew tap | 🟢 | inline (df35c4a) | `cli/Formula/anaf-cli.rb` with SHA256 placeholders; `brew test` runs `--version` + `schema print` |
+| P4.5 | npm publish | 🟢 | inline (df35c4a) | publish job in `cli-release.yaml`; dry-run on workflow_dispatch, real publish on tag push |
+| P4.6 | Install docs | 🟢 | inline (df35c4a) | `cli/README.md` rewritten: install / quickstart / command reference / exit codes / dev loop |
 
 ---
 
