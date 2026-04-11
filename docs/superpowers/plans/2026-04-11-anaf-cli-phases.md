@@ -387,9 +387,9 @@ Update this table as workstreams complete. Keep it short — one line per item.
 | P2.6 | JSON polish + preview release | 🟢 | inline (no separate plan) | merged in `8bbbb67`; 11 golden envelope tests for cross-command consistency; version bumped to `0.1.0-preview.1`; smoke regex loosened (clears P1.1 NIT); W5 closed |
 | P3.1 | Manifest parser | ⚪ | — | |
 | P3.2 | run / dry-run / schema print | ⚪ | — | |
-| P3.3 | validate / sig / pdf | ⚪ | — | |
-| P3.4 | Caching controls | ⚪ | — | |
-| P3.5 | Error model hardening | ⚪ | — | |
+| P3.3 | validate / sig / pdf | 🟢 | inline | merged in `d3f99da`; 6 handler tests; P2.4's D1 forced auth-wired tools |
+| P3.4 | Caching controls | 🟢 | inline | merged in `5616fe5`; `--no-cache` / `--refresh-cache` plumbed into lookup company; async lookup intentionally bypasses cache (design) |
+| P3.5 | Error model hardening | 🟢 | inline | merged in `adab551`; ERROR_CODES registry + isKnownErrorCode; category→exit mapping was already complete from P1.3 |
 | P3.6 | Manifest schemas + goldens | ⚪ | — | |
 | P4.1 | esbuild bundle | ⚪ | — | |
 | P4.2 | Node SEA per platform | ⚪ | — | pin Node version here |
