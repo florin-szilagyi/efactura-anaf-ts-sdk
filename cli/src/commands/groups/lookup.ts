@@ -1,14 +1,51 @@
 import type { Command } from 'commander';
 import type { CommandDeps } from '../buildProgram';
-import { notImplemented } from '../notImplemented';
+import { CliError } from '../../output/errors';
+import { renderSuccess } from '../../output';
 
-export function registerLookup(parent: Command, _deps: CommandDeps): void {
+interface CompanyAsyncOpts {
+  initialDelay?: string;
+  retryDelay?: string;
+  maxRetries?: string;
+}
+
+export async function lookupCompany(deps: CommandDeps, cuis: string[], _opts: Record<string, unknown>): Promise<void> {
+  const companies = await deps.services.lookupService.batchGetCompanies(cuis);
+  renderSuccess(deps.output, { companies }, (d) =>
+    d.companies.map((c) => `${c.vatCode}\t${c.name}\t${c.address ?? ''}`).join('\n')
+  );
+}
+
+export async function lookupCompanyAsync(deps: CommandDeps, cui: string, opts: CompanyAsyncOpts): Promise<void> {
+  const polling = {
+    initialDelay: opts.initialDelay ? Number(opts.initialDelay) : undefined,
+    retryDelay: opts.retryDelay ? Number(opts.retryDelay) : undefined,
+    maxRetries: opts.maxRetries ? Number(opts.maxRetries) : undefined,
+  };
+  const company = await deps.services.lookupService.getCompanyAsync(cui, polling);
+  renderSuccess(deps.output, company, (c) => `${c.vatCode}\t${c.name}`);
+}
+
+export async function lookupValidateCui(deps: CommandDeps, cui: string): Promise<void> {
+  const valid = await deps.services.lookupService.validateCui(cui);
+  if (!valid) {
+    throw new CliError({
+      code: 'INVALID_CUI',
+      message: `Invalid CUI format: "${cui}"`,
+      category: 'user_input',
+      details: { cui, valid: false },
+    });
+  }
+  renderSuccess(deps.output, { cui, valid: true }, () => 'valid');
+}
+
+export function registerLookup(parent: Command, deps: CommandDeps): void {
   const lookup = parent.command('lookup').description('Public ANAF company lookup');
 
   lookup
     .command('company <cui...>')
     .description('Sync company data lookup (one or more CUIs)')
-    .action(() => notImplemented('lookup company'));
+    .action((cuis: string[], opts: Record<string, unknown>) => lookupCompany(deps, cuis, opts));
 
   lookup
     .command('company-async <cui>')
@@ -16,10 +53,10 @@ export function registerLookup(parent: Command, _deps: CommandDeps): void {
     .option('--initial-delay <ms>', 'initial poll delay in ms')
     .option('--retry-delay <ms>', 'retry delay in ms')
     .option('--max-retries <n>', 'max poll attempts')
-    .action(() => notImplemented('lookup company-async'));
+    .action((cui: string, opts: CompanyAsyncOpts) => lookupCompanyAsync(deps, cui, opts));
 
   lookup
     .command('validate-cui <cui>')
     .description('Cheap CUI format validation')
-    .action(() => notImplemented('lookup validate-cui'));
+    .action((cui: string) => lookupValidateCui(deps, cui));
 }

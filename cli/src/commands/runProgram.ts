@@ -1,6 +1,7 @@
 import { CommanderError } from 'commander';
 import { buildProgram, type ServiceRegistry } from './buildProgram';
 import { ContextService } from '../state';
+import { LookupService } from '../services';
 import {
   CliError,
   EXIT_CODES,
@@ -101,6 +102,7 @@ export async function runProgram(options: RunProgramOptions): Promise<void> {
     // new fields here; they MUST NOT change or reorder existing ones.
     const services: ServiceRegistry = {
       contextService: options.services?.contextService ?? new ContextService(),
+      lookupService: options.services?.lookupService ?? new LookupService(),
     };
 
     const program = buildProgram({
