@@ -4,7 +4,6 @@ import type { MessageFilter } from 'anaf-ts-sdk';
 import type { CommandDeps } from '../buildProgram';
 import { CliError } from '../../output/errors';
 import { renderSuccess, writeBinary } from '../../output';
-import { notImplemented } from '../notImplemented';
 
 interface UploadCmdOpts {
   context?: string;
@@ -37,6 +36,31 @@ interface MessagesCmdOpts {
   page?: string;
   startTime?: string;
   endTime?: string;
+  clientSecretStdin?: boolean;
+}
+
+interface ValidateCmdOpts {
+  context?: string;
+  xml?: string;
+  stdin?: boolean;
+  standard?: 'FACT1' | 'FCN';
+  clientSecretStdin?: boolean;
+}
+
+interface ValidateSignatureCmdOpts {
+  context?: string;
+  xml?: string;
+  signature?: string;
+  clientSecretStdin?: boolean;
+}
+
+interface PdfCmdOpts {
+  context?: string;
+  xml?: string;
+  stdin?: boolean;
+  standard?: 'FACT1' | 'FCN';
+  out?: string;
+  validation?: boolean;
   clientSecretStdin?: boolean;
 }
 
@@ -207,6 +231,77 @@ export async function efacturaMessages(deps: CommandDeps, opts: MessagesCmdOpts)
   });
 }
 
+export async function efacturaValidate(deps: CommandDeps, opts: ValidateCmdOpts): Promise<void> {
+  const xml = await resolveXmlInput(opts);
+  const clientSecret = await resolveClientSecret(opts);
+  const result = await deps.services.efacturaService.validateXml({
+    contextName: opts.context,
+    clientSecret,
+    xml,
+    standard: opts.standard ?? 'FACT1',
+  });
+  renderSuccess(deps.output, result, (d) => `${d.valid ? 'VALID' : 'INVALID'}: ${d.details ?? ''}`);
+  if (!result.valid) {
+    throw new CliError({
+      code: 'VALIDATION_FAILED',
+      message: `document is not valid: ${result.details ?? ''}`,
+      category: 'anaf_api',
+      details: { info: result.info },
+    });
+  }
+}
+
+export async function efacturaValidateSignature(deps: CommandDeps, opts: ValidateSignatureCmdOpts): Promise<void> {
+  if (!opts.xml) {
+    throw new CliError({
+      code: 'BAD_USAGE',
+      message: 'efactura validate-signature: --xml <path> is required',
+      category: 'user_input',
+    });
+  }
+  if (!opts.signature) {
+    throw new CliError({
+      code: 'BAD_USAGE',
+      message: 'efactura validate-signature: --signature <path> is required',
+      category: 'user_input',
+    });
+  }
+  const clientSecret = await resolveClientSecret(opts);
+  const xmlBytes = fs.readFileSync(opts.xml);
+  const sigBytes = fs.readFileSync(opts.signature);
+  const result = await deps.services.efacturaService.validateSignature({
+    contextName: opts.context,
+    clientSecret,
+    xml: xmlBytes,
+    signature: sigBytes,
+    xmlFilename: opts.xml,
+    signatureFilename: opts.signature,
+  });
+  renderSuccess(deps.output, result, (d) => `${d.valid ? 'VALID' : 'INVALID'}: ${d.details ?? ''}`);
+  if (!result.valid) {
+    throw new CliError({
+      code: 'SIGNATURE_VALIDATION_FAILED',
+      message: `signature is not valid: ${result.details ?? ''}`,
+      category: 'anaf_api',
+    });
+  }
+}
+
+export async function efacturaPdf(deps: CommandDeps, opts: PdfCmdOpts): Promise<void> {
+  const xml = await resolveXmlInput(opts);
+  const clientSecret = await resolveClientSecret(opts);
+  // commander sets `validation` to true by default and flips to false on --no-validation.
+  const noValidation = opts.validation === false;
+  const bytes = await deps.services.efacturaService.convertToPdf({
+    contextName: opts.context,
+    clientSecret,
+    xml,
+    standard: opts.standard ?? 'FACT1',
+    noValidation,
+  });
+  writeBinary(deps.output, bytes, { path: opts.out });
+}
+
 export function registerEfactura(parent: Command, deps: CommandDeps): void {
   const efactura = parent.command('efactura').description('e-Factura document operations');
 
@@ -262,27 +357,34 @@ export function registerEfactura(parent: Command, deps: CommandDeps): void {
     .option('--client-secret-stdin', 'read OAuth client secret from stdin')
     .action((opts: MessagesCmdOpts) => efacturaMessages(deps, opts));
 
-  // P3.3 owns these — keep as stubs for now.
   efactura
     .command('validate')
     .description('Validate an XML document via the ANAF tools service')
+    .option('--context <name>', 'context name override')
     .option('--xml <path>', 'path to XML file')
-    .option('--standard <std>', 'standard (e.g. FACT1)')
-    .action(() => notImplemented('efactura validate'));
+    .option('--stdin', 'read XML from stdin')
+    .option('--standard <std>', 'standard (FACT1|FCN)')
+    .option('--client-secret-stdin', 'read OAuth client secret from stdin')
+    .action((opts: ValidateCmdOpts) => efacturaValidate(deps, opts));
 
   efactura
     .command('validate-signature')
     .description('Validate an XML signature via ANAF')
+    .option('--context <name>', 'context name override')
     .option('--xml <path>', 'path to XML file')
     .option('--signature <path>', 'path to signature file')
-    .action(() => notImplemented('efactura validate-signature'));
+    .option('--client-secret-stdin', 'read OAuth client secret from stdin')
+    .action((opts: ValidateSignatureCmdOpts) => efacturaValidateSignature(deps, opts));
 
   efactura
     .command('pdf')
     .description('Convert an XML document to PDF via ANAF')
+    .option('--context <name>', 'context name override')
     .option('--xml <path>', 'path to XML file')
-    .option('--standard <std>', 'standard (e.g. FACT1)')
+    .option('--stdin', 'read XML from stdin')
+    .option('--standard <std>', 'standard (FACT1|FCN)')
     .option('--no-validation', 'use the no-validation conversion endpoint')
     .option('--out <path>', 'output PDF file path')
-    .action(() => notImplemented('efactura pdf'));
+    .option('--client-secret-stdin', 'read OAuth client secret from stdin')
+    .action((opts: PdfCmdOpts) => efacturaPdf(deps, opts));
 }

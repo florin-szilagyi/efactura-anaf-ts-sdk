@@ -11,8 +11,19 @@ import {
   efacturaStatus,
   efacturaDownload,
   efacturaMessages,
+  efacturaValidate,
+  efacturaValidateSignature,
+  efacturaPdf,
 } from '../../../src/commands/groups/efactura';
-import type { UploadArgs, StatusArgs, DownloadArgs, MessagesArgs } from '../../../src/services';
+import type {
+  UploadArgs,
+  StatusArgs,
+  DownloadArgs,
+  MessagesArgs,
+  ValidateArgs,
+  ValidateSignatureArgs,
+  PdfArgs,
+} from '../../../src/services';
 
 class Cap extends Writable {
   buf = '';
@@ -29,6 +40,12 @@ class StubEfacturaService {
   statusCalls: StatusArgs[] = [];
   downloadCalls: DownloadArgs[] = [];
   messagesCalls: MessagesArgs[] = [];
+  validateCalls: ValidateArgs[] = [];
+  validateSignatureCalls: ValidateSignatureArgs[] = [];
+  pdfCalls: PdfArgs[] = [];
+  validateResult = { valid: true, details: 'ok' };
+  validateSignatureResult = { valid: true, details: 'ok' };
+  pdfResult = Buffer.from('%PDF-FAKE');
   async upload(args: UploadArgs) {
     this.uploadCalls.push(args);
     return { indexIncarcare: 'u-1', dateResponse: '2026', executionStatus: '0' };
@@ -44,6 +61,18 @@ class StubEfacturaService {
   async getMessages(args: MessagesArgs) {
     this.messagesCalls.push(args);
     return { mesaje: [{ id: 'm-1' }] } as never;
+  }
+  async validateXml(args: ValidateArgs) {
+    this.validateCalls.push(args);
+    return this.validateResult;
+  }
+  async validateSignature(args: ValidateSignatureArgs) {
+    this.validateSignatureCalls.push(args);
+    return this.validateSignatureResult;
+  }
+  async convertToPdf(args: PdfArgs) {
+    this.pdfCalls.push(args);
+    return this.pdfResult;
   }
 }
 
@@ -283,6 +312,121 @@ describe('efacturaMessages', () => {
       await expect(efacturaMessages({ output: h.text, services: h.services }, { days: 'abc' })).rejects.toBeInstanceOf(
         CliError
       );
+    } finally {
+      h.restore();
+    }
+  });
+});
+
+describe('efacturaValidate', () => {
+  it('reads XML from --xml, calls the service, and prints a VALID line', async () => {
+    const h = harness();
+    try {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'anaf-cli-efv-'));
+      const xmlPath = path.join(tmp, 'inv.xml');
+      fs.writeFileSync(xmlPath, '<?xml?><Invoice/>');
+      await efacturaValidate({ output: h.text, services: h.services }, { xml: xmlPath });
+      expect(h.efacturaService.validateCalls).toHaveLength(1);
+      expect(h.efacturaService.validateCalls[0].standard).toBe('FACT1');
+      expect(h.stdout.buf).toContain('VALID');
+      fs.rmSync(tmp, { recursive: true });
+    } finally {
+      h.restore();
+    }
+  });
+
+  it('throws VALIDATION_FAILED when the service reports invalid', async () => {
+    const h = harness();
+    h.efacturaService.validateResult = { valid: false, details: 'schema error' };
+    try {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'anaf-cli-efv-'));
+      const xmlPath = path.join(tmp, 'inv.xml');
+      fs.writeFileSync(xmlPath, '<x/>');
+      let err: unknown;
+      try {
+        await efacturaValidate({ output: h.text, services: h.services }, { xml: xmlPath });
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(CliError);
+      expect((err as CliError).code).toBe('VALIDATION_FAILED');
+      fs.rmSync(tmp, { recursive: true });
+    } finally {
+      h.restore();
+    }
+  });
+});
+
+describe('efacturaValidateSignature', () => {
+  it('loads xml + signature files as buffers and calls the service', async () => {
+    const h = harness();
+    try {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'anaf-cli-efvs-'));
+      const xmlPath = path.join(tmp, 'inv.xml');
+      const sigPath = path.join(tmp, 'sig.xml');
+      fs.writeFileSync(xmlPath, '<x/>');
+      fs.writeFileSync(sigPath, '<sig/>');
+      await efacturaValidateSignature({ output: h.text, services: h.services }, { xml: xmlPath, signature: sigPath });
+      expect(h.efacturaService.validateSignatureCalls).toHaveLength(1);
+      expect(Buffer.isBuffer(h.efacturaService.validateSignatureCalls[0].xml)).toBe(true);
+      expect(Buffer.isBuffer(h.efacturaService.validateSignatureCalls[0].signature)).toBe(true);
+      fs.rmSync(tmp, { recursive: true });
+    } finally {
+      h.restore();
+    }
+  });
+
+  it('throws BAD_USAGE when --xml is missing', async () => {
+    const h = harness();
+    try {
+      await expect(
+        efacturaValidateSignature({ output: h.text, services: h.services }, { signature: '/tmp/x' })
+      ).rejects.toBeInstanceOf(CliError);
+    } finally {
+      h.restore();
+    }
+  });
+
+  it('throws BAD_USAGE when --signature is missing', async () => {
+    const h = harness();
+    try {
+      await expect(
+        efacturaValidateSignature({ output: h.text, services: h.services }, { xml: '/tmp/x' })
+      ).rejects.toBeInstanceOf(CliError);
+    } finally {
+      h.restore();
+    }
+  });
+});
+
+describe('efacturaPdf', () => {
+  it('writes PDF bytes to --out and emits confirmation to stderr', async () => {
+    const h = harness();
+    try {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'anaf-cli-efpdf-'));
+      const xmlPath = path.join(tmp, 'inv.xml');
+      const outPath = path.join(tmp, 'out.pdf');
+      fs.writeFileSync(xmlPath, '<x/>');
+      await efacturaPdf({ output: h.text, services: h.services }, { xml: xmlPath, out: outPath });
+      expect(h.efacturaService.pdfCalls[0].noValidation).toBe(false);
+      expect(fs.readFileSync(outPath, 'utf8')).toBe('%PDF-FAKE');
+      expect(h.stderr.buf).toContain(outPath);
+      fs.rmSync(tmp, { recursive: true });
+    } finally {
+      h.restore();
+    }
+  });
+
+  it('passes noValidation=true when --no-validation is set', async () => {
+    const h = harness();
+    try {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'anaf-cli-efpdf-'));
+      const xmlPath = path.join(tmp, 'inv.xml');
+      fs.writeFileSync(xmlPath, '<x/>');
+      // commander delivers --no-validation as `validation: false`
+      await efacturaPdf({ output: h.text, services: h.services }, { xml: xmlPath, validation: false });
+      expect(h.efacturaService.pdfCalls[0].noValidation).toBe(true);
+      fs.rmSync(tmp, { recursive: true });
     } finally {
       h.restore();
     }
