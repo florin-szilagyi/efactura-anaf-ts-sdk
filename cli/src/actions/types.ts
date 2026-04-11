@@ -1,0 +1,73 @@
+export type ActionKind = 'ubl.build' | 'efactura.upload';
+
+export interface OutputTarget {
+  mode: 'stdout' | 'file';
+  /** Required when mode === 'file'. */
+  path?: string;
+}
+
+export interface InvoiceLineAction {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxPercent: number;
+  unitCode?: string;
+}
+
+export interface PartyOverride {
+  registrationName?: string;
+  companyId?: string;
+  vatNumber?: string;
+  email?: string;
+  telephone?: string;
+  partyIdentificationId?: string;
+  address?: {
+    street?: string;
+    city?: string;
+    postalZone?: string;
+    county?: string;
+    countryCode?: string;
+  };
+}
+
+export interface InvoiceOverrides {
+  supplier?: PartyOverride;
+  customer?: PartyOverride;
+  note?: string;
+  paymentIban?: string;
+  currency?: string;
+  dueDate?: string;
+}
+
+export interface UblBuildAction {
+  kind: 'ubl.build';
+  /** Resolved context name. */
+  context: string;
+  invoice: {
+    invoiceNumber: string;
+    /** YYYY-MM-DD */
+    issueDate: string;
+    /** YYYY-MM-DD */
+    dueDate?: string;
+    customerCui: string;
+    lines: InvoiceLineAction[];
+    /** Defaults to RON downstream. */
+    currency?: string;
+    note?: string;
+    paymentIban?: string;
+    overrides?: InvoiceOverrides;
+  };
+  output: OutputTarget;
+}
+
+export interface EfacturaUploadAction {
+  kind: 'efactura.upload';
+  context: string;
+  source: { type: 'xmlFile'; path: string } | { type: 'xmlStdin' } | { type: 'ublBuild'; build: UblBuildAction };
+  upload: {
+    standard: 'UBL' | 'CN' | 'CII' | 'RASP';
+    isB2C?: boolean;
+    isExecutare?: boolean;
+  };
+  output: OutputTarget;
+}
