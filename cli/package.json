@@ -25,16 +25,18 @@
   "files": ["dist/**/*", "README.md", "LICENSE"],
   "scripts": {
     "clean": "rimraf dist coverage",
-    "build": "pnpm run clean && pnpm run build:tsc",
+    "build": "pnpm run clean && pnpm run build:tsc && pnpm run build:bundle",
     "build:tsc": "tsc -p tsconfig.build.json",
     "build:bundle": "node scripts/build-bundle.mjs",
+    "build:sea": "node scripts/build-sea.mjs",
     "dev": "tsx src/bin/anaf-cli.ts",
     "lint": "eslint 'src/**/*.ts' 'tests/**/*.ts'",
     "lint:fix": "eslint 'src/**/*.ts' 'tests/**/*.ts' --fix",
     "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
     "test": "jest",
     "test:unit": "jest --testPathIgnorePatterns=smoke",
-    "test:smoke": "jest --testPathPattern=smoke --runInBand"
+    "test:smoke": "jest --testPathPattern=smoke --runInBand",
+    "verify": "pnpm run lint && pnpm run build && pnpm run test"
   },
   "dependencies": {
     "anaf-ts-sdk": "workspace:*",

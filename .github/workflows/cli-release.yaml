@@ -1,0 +1,191 @@
+name: Release anaf-cli
+
+# ──────────────────────────────────────────────────────────────
+# Trigger:
+#   • Push of a tag matching cli-v*.*.* (e.g. cli-v0.1.0 or cli-v1.0.0-preview.1)
+#   • Manual run via workflow_dispatch for testing
+#
+# Build matrix:
+#   • npm package (Ubuntu)
+#   • SEA binary for darwin-arm64, darwin-x64, linux-x64
+#
+# Outputs:
+#   • GitHub Release (draft) with the 3 tar.gz SEA artifacts, the npm .tgz,
+#     and a SHA256SUMS file
+#   • npm publish of the `anaf-cli` package (skipped on dry runs)
+# ──────────────────────────────────────────────────────────────
+on:
+  push:
+    tags:
+      - 'cli-v*.*.*'
+      - 'cli-v*.*.*-*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build artifacts but skip npm publish and release upload'
+        required: false
+        default: 'true'
+
+env:
+  # Pinned Node version — SEA requires byte-matching between blob generator
+  # and injected binary, so keep this pinned across jobs.
+  NODE_VERSION: '20.18.1'
+
+jobs:
+  # ─────────────────────────── Tests + npm tarball ───────────
+  test-and-pack:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      cli_version: ${{ steps.read_version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (workspace)
+        run: pnpm install --frozen-lockfile
+      - name: Build SDK
+        run: pnpm --filter anaf-ts-sdk run build
+      - name: Verify CLI
+        run: pnpm --filter anaf-cli run verify
+      - name: Read CLI version
+        id: read_version
+        run: |
+          VERSION=$(node -e "console.log(require('./cli/package.json').version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "CLI version: $VERSION"
+      - name: Pack npm tarball
+        run: pnpm --filter anaf-cli pack --pack-destination ./artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: cli/artifacts/*.tgz
+
+  # ─────────────────────────── SEA binaries per platform ────
+  build-sea:
+    needs: test-and-pack
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14 # arm64 runner
+            target: darwin-arm64
+            ext: ''
+          - os: macos-13 # x64 runner
+            target: darwin-x64
+            ext: ''
+          - os: ubuntu-latest
+            target: linux-x64
+            ext: ''
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      CLI_VERSION: ${{ needs.test-and-pack.outputs.cli_version }}
+      TARGET: ${{ matrix.target }}
+      EXT: ${{ matrix.ext }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (workspace)
+        run: pnpm install --frozen-lockfile
+      - name: Build SDK
+        run: pnpm --filter anaf-ts-sdk run build
+      - name: Build CLI bundle
+        run: pnpm --filter anaf-cli run build
+      - name: Build SEA binary
+        run: |
+          mkdir -p "cli/dist/sea/${TARGET}"
+          node cli/scripts/build-sea.mjs \
+            --bundle cli/dist/bin/anaf-cli.cjs \
+            --output "cli/dist/sea/${TARGET}/anaf-cli${EXT}"
+      - name: Smoke test binary
+        run: |
+          BIN="./cli/dist/sea/${TARGET}/anaf-cli${EXT}"
+          "$BIN" --version
+          "$BIN" --help > /dev/null
+          "$BIN" schema print UblBuild > /dev/null
+      - name: Pack tarball
+        run: |
+          mkdir -p cli/dist/release
+          cd "cli/dist/sea/${TARGET}"
+          tar -czf "../../release/anaf-cli-${CLI_VERSION}-${TARGET}.tar.gz" "anaf-cli${EXT}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sea-${{ matrix.target }}
+          path: cli/dist/release/*.tar.gz
+
+  # ─────────────────────────── Publish ───────────────────────
+  publish:
+    needs: [test-and-pack, build-sea]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.inputs.dry_run != 'true'
+    permissions:
+      contents: write
+    env:
+      CLI_VERSION: ${{ needs.test-and-pack.outputs.cli_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org/'
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./release-artifacts
+      - name: Compute SHA256SUMS
+        run: |
+          mkdir -p ./release-final
+          cp ./release-artifacts/sea-darwin-arm64/*.tar.gz ./release-final/
+          cp ./release-artifacts/sea-darwin-x64/*.tar.gz ./release-final/
+          cp ./release-artifacts/sea-linux-x64/*.tar.gz ./release-final/
+          cp ./release-artifacts/npm-tarball/*.tgz ./release-final/
+          cd ./release-final
+          sha256sum *.tar.gz *.tgz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./release-final/*
+          body_path: ./release-final/SHA256SUMS
+          draft: true
+          prerelease: ${{ contains(needs.test-and-pack.outputs.cli_version, '-') }}
+      - name: Install (workspace, for publish)
+        run: pnpm install --frozen-lockfile
+      - name: Build CLI
+        run: |
+          pnpm --filter anaf-ts-sdk run build
+          pnpm --filter anaf-cli run build
+      - name: Publish to npm (dry-run default)
+        run: |
+          cd cli
+          if [ "${{ github.event_name }}" = "push" ]; then
+            pnpm publish --no-git-checks --access public
+          else
+            pnpm publish --no-git-checks --access public --dry-run
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
