@@ -381,10 +381,10 @@ Update this table as workstreams complete. Keep it short — one line per item.
 | P1.7 | lookup + cache | 🟢 | `2026-04-11-anaf-cli-P1.7.md` | merged in `bc3d327`; LookupService wraps `AnafDetailsClient` with read-through file cache; D1: SDK's `AnafCompanyResult` is not a discriminated union (workaround with `??` fallbacks) |
 | P2.1 | Action model | 🟢 | `2026-04-11-anaf-cli-P2.1.md` | merged in `7939423`; KEYSTONE shipped; UblBuildAction + EfacturaUploadAction + line parser + override merge + strict zod schemas; 32 tests |
 | P2.2 | UblService | 🟢 | `2026-04-11-anaf-cli-P2.2.md` | merged in `9074490`; hydrates parties via LookupService, applies mergePartyOverride; D1: SDK `InvoiceBuilder.validateAddress` requires non-empty street/city/postalZone, defaulted to `'-'` placeholder (users override in practice) |
-| P2.3 | ubl build cmd | ⚪ | — | |
+| P2.3 | ubl build cmd | 🟢 | `2026-04-11-anaf-cli-P2.3.md` | merged in `3c21a29`; flags + `--from-json` + `--from-yaml`, override flag plumbing; context resolved up-front via `contextService.resolve` to avoid regex violation; `ubl inspect` uses regex-only preview |
 | P2.4 | EfacturaService | 🟢 | `2026-04-11-anaf-cli-P2.4.md` | merged in `6aeb321`; per-call `TokenManager`; refresh token rotation persisted in try/finally; D1: post-split SDK `EfacturaToolsClient` requires a `TokenManager` — validate/signature/pdf are authenticated operations now (impacts P3.3 plan) |
 | P2.5 | efactura cmds | 🟢 | `2026-04-11-anaf-cli-P2.5.md` | merged in `6b0e3e3`; upload/upload-b2c/status/download/messages wired through EfacturaService; validate/sig/pdf still stubs (P3.3); harness sentinel pattern needed for env-var tests |
-| P2.6 | JSON polish + preview release | ⚪ | — | preview npm tag |
+| P2.6 | JSON polish + preview release | 🟢 | inline (no separate plan) | merged in `8bbbb67`; 11 golden envelope tests for cross-command consistency; version bumped to `0.1.0-preview.1`; smoke regex loosened (clears P1.1 NIT); W5 closed |
 | P3.1 | Manifest parser | ⚪ | — | |
 | P3.2 | run / dry-run / schema print | ⚪ | — | |
 | P3.3 | validate / sig / pdf | ⚪ | — | |
