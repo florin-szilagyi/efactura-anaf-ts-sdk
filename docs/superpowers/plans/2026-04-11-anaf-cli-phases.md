@@ -372,7 +372,7 @@ Update this table as workstreams complete. Keep it short — one line per item.
 
 | ID | Title | Status | Detailed plan | Notes |
 | --- | --- | --- | --- | --- |
-| P1.1 | Package bootstrap | ⚪ | — | |
+| P1.1 | Package bootstrap | 🟢 | `2026-04-11-anaf-cli-P1.1.md` | merged in `bdd829d`; D1: esbuild banner removed (0.21 preserves shebang); NITs deferred to P4.1 (regex strictness, `build` script doesn't chain `build:bundle`) |
 | P1.2 | CLI parser scaffold | ⚪ | — | |
 | P1.3 | Output layer | ⚪ | — | |
 | P1.4 | State layer | ⚪ | — | |
