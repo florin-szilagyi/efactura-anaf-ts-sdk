@@ -24,7 +24,13 @@ import {
   buildListMessagesParams,
   buildPaginatedMessagesParams,
 } from './constants';
-import { parseUploadResponse, parseStatusResponse, parseJsonResponse, isErrorResponse, extractErrorMessage } from './utils/xmlParser';
+import {
+  parseUploadResponse,
+  parseStatusResponse,
+  parseJsonResponse,
+  isErrorResponse,
+  extractErrorMessage,
+} from './utils/xmlParser';
 import { isValidDaysParameter } from './utils/dateUtils';
 import { HttpClient } from './utils/httpClient';
 import { handleApiError } from './utils/errorHandler';
@@ -68,10 +74,12 @@ export class EfacturaClient {
 
     const basePath = this.config.basePath || getBasePath('oauth', this.config.testMode);
 
-    this.httpClient = httpClient ?? new HttpClient({
-      baseURL: basePath,
-      timeout: this.config.timeout,
-    });
+    this.httpClient =
+      httpClient ??
+      new HttpClient({
+        baseURL: basePath,
+        timeout: this.config.timeout,
+      });
 
     this.tokenManager = tokenManager;
   }

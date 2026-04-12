@@ -48,21 +48,11 @@ function buildPartyXml(root: XMLBuilder, tagName: string, party: Party): void {
 
   // Party Identification (optional supplementary ID)
   if (party.partyIdentificationId) {
-    partyElement
-      .ele('cac:PartyIdentification')
-      .ele('cbc:ID')
-      .txt(party.partyIdentificationId)
-      .up()
-      .up();
+    partyElement.ele('cac:PartyIdentification').ele('cbc:ID').txt(party.partyIdentificationId).up().up();
   }
 
   // Party Name
-  partyElement
-    .ele('cac:PartyName')
-    .ele('cbc:Name')
-    .txt(party.registrationName)
-    .up()
-    .up();
+  partyElement.ele('cac:PartyName').ele('cbc:Name').txt(party.registrationName).up().up();
 
   // Postal Address
   partyElement
@@ -391,12 +381,7 @@ export function buildInvoiceXml(input: InvoiceInput): string {
   // Invoice Period (optional)
   if (input.invoicePeriodEndDate) {
     const periodEndDate = formatDateForAnaf(input.invoicePeriodEndDate);
-    root
-      .ele('cac:InvoicePeriod')
-      .ele('cbc:EndDate')
-      .txt(periodEndDate)
-      .up()
-      .up();
+    root.ele('cac:InvoicePeriod').ele('cbc:EndDate').txt(periodEndDate).up().up();
   }
 
   // Parties

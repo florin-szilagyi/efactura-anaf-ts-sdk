@@ -33,10 +33,12 @@ export class EfacturaToolsClient {
   constructor(config: EfacturaToolsConfig = {}, tokenManager: TokenManager, httpClient?: HttpClient) {
     const basePath = config.basePath || getBasePath('oauth', config.testMode ?? false);
 
-    this.httpClient = httpClient ?? new HttpClient({
-      baseURL: basePath,
-      timeout: config.timeout ?? DEFAULT_TIMEOUT,
-    });
+    this.httpClient =
+      httpClient ??
+      new HttpClient({
+        baseURL: basePath,
+        timeout: config.timeout ?? DEFAULT_TIMEOUT,
+      });
 
     this.tokenManager = tokenManager;
   }

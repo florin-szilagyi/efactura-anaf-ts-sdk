@@ -1,4 +1,10 @@
-import { AnafApiError, AnafAuthenticationError, AnafNotFoundError, AnafRateLimitError, AnafValidationError } from '../errors';
+import {
+  AnafApiError,
+  AnafAuthenticationError,
+  AnafNotFoundError,
+  AnafRateLimitError,
+  AnafValidationError,
+} from '../errors';
 import { tryCatch } from '../tryCatch';
 
 interface HttpOptions extends RequestInit {

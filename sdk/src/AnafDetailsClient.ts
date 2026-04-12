@@ -114,7 +114,7 @@ export class AnafDetailsClient {
    */
   private transformResponse(
     response: AnafApiResponse,
-    registryResponse?: EFacturaRegistryResponse | null,
+    registryResponse?: EFacturaRegistryResponse | null
   ): AnafCompanyResult {
     const data: AnafCompanyData[] = [];
     if (response.found) {
@@ -296,8 +296,7 @@ export class AnafDetailsClient {
     }
 
     // Extract registry data if available (graceful degradation)
-    const registryData =
-      registryResult.status === 'fulfilled' ? registryResult.value?.data ?? null : null;
+    const registryData = registryResult.status === 'fulfilled' ? (registryResult.value?.data ?? null) : null;
 
     return this.transformResponse(companyResult.value.data, registryData);
   }
@@ -345,10 +344,7 @@ export class AnafDetailsClient {
    * }
    * ```
    */
-  async getCompanyDataAsync(
-    vatCode: string,
-    pollingConfig?: AnafAsyncPollingConfig,
-  ): Promise<AnafAsyncCompanyResult> {
+  async getCompanyDataAsync(vatCode: string, pollingConfig?: AnafAsyncPollingConfig): Promise<AnafAsyncCompanyResult> {
     return this.batchGetCompanyDataAsync([vatCode], pollingConfig);
   }
 
@@ -368,7 +364,7 @@ export class AnafDetailsClient {
    */
   async batchGetCompanyDataAsync(
     vatCodes: string[],
-    pollingConfig?: AnafAsyncPollingConfig,
+    pollingConfig?: AnafAsyncPollingConfig
   ): Promise<AnafAsyncCompanyResult> {
     if (!vatCodes || vatCodes.length === 0) {
       return { success: false, error: 'No VAT codes provided.' };
@@ -408,7 +404,7 @@ export class AnafDetailsClient {
     const { data: submitResponse, error: submitError } = await tryCatch(
       this.httpClient.post<AnafAsyncSubmitResponse>(this.config.asyncUrl, validatedPayload, {
         headers: { 'Content-Type': 'application/json' },
-      }),
+      })
     );
 
     if (submitError) {
@@ -438,7 +434,7 @@ export class AnafDetailsClient {
       const resultUrl = `${this.config.asyncResultUrl}?id=${correlationId}`;
 
       const { data: pollResponse, error: pollError } = await tryCatch(
-        this.httpClient.get<AnafAsyncResultResponse>(resultUrl),
+        this.httpClient.get<AnafAsyncResultResponse>(resultUrl)
       );
 
       if (pollError) {
