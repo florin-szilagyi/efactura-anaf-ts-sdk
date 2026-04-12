@@ -1,16 +1,10 @@
-name: Publish npm
+name: Publish SDK (anaf-ts-sdk)
 
-# ──────────────────────────────────────────────────────────────
-# Trigger:
-#   • Any push to main that touches package.json or src/**
-#   • Manual run (workflow_dispatch) with release-type input
-# ──────────────────────────────────────────────────────────────
 on:
   push:
     branches: [main]
     paths:
-      - 'package.json'
-      - 'src/**'
+      - 'sdk/**'
   workflow_dispatch:
     inputs:
       release_type:
@@ -23,15 +17,14 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write # allow the action to commit & push
-      packages: write # allow npm publish
+      contents: write
+      packages: write
 
     steps:
-      # ───────────── Git checkout ─────────────
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # tags are needed for version bump
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v3
         with:
@@ -41,27 +34,18 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-
-      # ───────────── Auto-increment version ──
-      - name: Bump package version & push tag
-        id: bump
-        uses: phips28/gh-action-bump-version@v11.0.7
-        with:
-          default: ${{ github.event.inputs.release_type || 'patch' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          registry-url: 'https://registry.npmjs.org/'
 
       - name: Install packages
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
+      - name: Build SDK
+        run: pnpm --filter anaf-ts-sdk run build
 
-      - name: Test
-        run: pnpm validate
+      - name: Test SDK
+        run: pnpm --filter anaf-ts-sdk run validate
 
-      # ───────────── Publish to npmjs ────────
-      - name: Publish package
-        run: pnpm publish --access public
+      - name: Publish SDK
+        run: pnpm --filter anaf-ts-sdk publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
