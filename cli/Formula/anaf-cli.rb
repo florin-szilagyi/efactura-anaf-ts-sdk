@@ -8,29 +8,29 @@
 # release pipeline on every tagged release of the CLI.
 #
 # Install:
-#   brew tap florin-szilagyi/anaf
+#   brew tap florin-szilagyi/anaf-cli
 #   brew install anaf-cli
 class AnafCli < Formula
   desc "CLI for the Romanian ANAF e-Factura SDK (anaf-ts-sdk)"
-  homepage "https://github.com/florin-szilagyi/efactura-anaf-ts-sdk"
+  homepage "https://github.com/florin-szilagyi/ts-anaf"
   license "MIT"
   version "0.1.0-preview.1"
 
   on_macos do
     on_arm do
-      url "https://github.com/florin-szilagyi/efactura-anaf-ts-sdk/releases/download/cli-v#{version}/anaf-cli-#{version}-darwin-arm64.tar.gz"
+      url "https://github.com/florin-szilagyi/ts-anaf/releases/download/cli-v#{version}/anaf-cli-#{version}-darwin-arm64.tar.gz"
       sha256 "REPLACE_WITH_DARWIN_ARM64_SHA256"
     end
 
     on_intel do
-      url "https://github.com/florin-szilagyi/efactura-anaf-ts-sdk/releases/download/cli-v#{version}/anaf-cli-#{version}-darwin-x64.tar.gz"
+      url "https://github.com/florin-szilagyi/ts-anaf/releases/download/cli-v#{version}/anaf-cli-#{version}-darwin-x64.tar.gz"
       sha256 "REPLACE_WITH_DARWIN_X64_SHA256"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/florin-szilagyi/efactura-anaf-ts-sdk/releases/download/cli-v#{version}/anaf-cli-#{version}-linux-x64.tar.gz"
+      url "https://github.com/florin-szilagyi/ts-anaf/releases/download/cli-v#{version}/anaf-cli-#{version}-linux-x64.tar.gz"
       sha256 "REPLACE_WITH_LINUX_X64_SHA256"
     end
   end
