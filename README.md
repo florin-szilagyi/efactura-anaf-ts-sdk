@@ -8,14 +8,14 @@ Upload invoices, check statuses, download responses, validate XML, generate UBL,
 
 | Package | Description | Install |
 |---------|-------------|---------|
-| [**anaf-ts-sdk**](./sdk/) | TypeScript SDK -- OAuth, upload, status, download, UBL builder, company lookup | `pnpm add anaf-ts-sdk` |
-| [**anaf-cli**](./cli/) | Command-line tool -- wraps the SDK with context management and JSON output | `npm i -g anaf-cli` |
+| [**@florinszilagyi/anaf-ts-sdk**](./sdk/) | TypeScript SDK -- OAuth, upload, status, download, UBL builder, company lookup | `pnpm add @florinszilagyi/anaf-ts-sdk` |
+| [**@florinszilagyi/anaf-cli**](./cli/) | Command-line tool -- wraps the SDK with context management and JSON output | `npm i -g @florinszilagyi/anaf-cli` |
 
 ## CLI quick start
 
 ```bash
 # Install
-npm i -g anaf-cli
+npm i -g @florinszilagyi/anaf-cli
 
 # Save your ANAF OAuth app credentials
 anaf-cli cred add --name my-app \
@@ -39,7 +39,7 @@ See [cli/README.md](./cli/) for the full command reference.
 ## SDK quick start
 
 ```typescript
-import { AnafAuthenticator, EfacturaClient, TokenManager } from 'anaf-ts-sdk';
+import { AnafAuthenticator, EfacturaClient, TokenManager } from '@florinszilagyi/anaf-ts-sdk';
 
 // Authenticate
 const auth = new AnafAuthenticator({

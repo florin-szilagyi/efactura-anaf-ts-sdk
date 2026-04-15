@@ -338,7 +338,8 @@ List recent e-Factura messages
 
 Options:
   --days <n>             lookback window in days
-  --filter <code>        message filter code: T|P|E|R
+  --filter <type>        sent | received | errors | buyer-messages (or raw:
+                         T|P|E|R)
   --page <n>             page number
   --start-time <ms>      pagination start time (epoch ms)
   --end-time <ms>        pagination end time (epoch ms)
@@ -493,36 +494,38 @@ Usage: anaf-cli ubl build [options]
 Build a UBL invoice from flags or a structured input file
 
 Options:
-  --invoice-number <n>            invoice number
-  --issue-date <date>             issue date (YYYY-MM-DD)
-  --due-date <date>               due date (YYYY-MM-DD)
-  --customer-cui <cui>            customer CUI
-  --line <line>                   invoice line:
-                                  "desc|qty|unitPrice|taxPct[|unitCode]"
-                                  (default: [])
-  --currency <code>               currency code
-  --payment-iban <iban>           payment IBAN
-  --note <text>                   free-form note
-  --out <path>                    output XML file path
-  --from-json <path>              load invoice from a JSON file
-  --from-yaml <path>              load invoice from a YAML file
-  --supplier-name <name>          supplier registration name override
-  --supplier-street <street>      supplier street override
-  --supplier-city <city>          supplier city override
-  --supplier-postal-zone <zone>   supplier postal zone override
-  --supplier-country-code <code>  supplier country code override
-  --customer-name <name>          customer registration name override
-  --customer-street <street>      customer street override
-  --customer-city <city>          customer city override
-  --customer-postal-zone <zone>   customer postal zone override
-  --customer-country-code <code>  customer country code override
-  -v, --version                   print the CLI version
-  --format <fmt>                  output format: text, json, or yaml (default:
-                                  text)
-  --verbose                       show HTTP requests and responses
-  --no-color                      disable ANSI color (reserved; no effect in
-                                  current builds)
-  -h, --help                      display help for command
+  --invoice-number <n>                invoice number
+  --issue-date <date>                 issue date (YYYY-MM-DD)
+  --due-date <date>                   due date (YYYY-MM-DD)
+  --customer-cui <cui>                customer CUI
+  --line <line>                       invoice line:
+                                      "desc|qty|unitPrice|taxPct[|unitCode]"
+                                      (default: [])
+  --currency <code>                   currency code
+  --tax-currency-tax-amount <amount>  total VAT in RON (required when
+                                      --currency is not RON, CIUS-RO BR-53)
+  --payment-iban <iban>               payment IBAN
+  --note <text>                       free-form note
+  --out <path>                        output XML file path
+  --from-json <path>                  load invoice from a JSON file
+  --from-yaml <path>                  load invoice from a YAML file
+  --supplier-name <name>              supplier registration name override
+  --supplier-street <street>          supplier street override
+  --supplier-city <city>              supplier city override
+  --supplier-postal-zone <zone>       supplier postal zone override
+  --supplier-country-code <code>      supplier country code override
+  --customer-name <name>              customer registration name override
+  --customer-street <street>          customer street override
+  --customer-city <city>              customer city override
+  --customer-postal-zone <zone>       customer postal zone override
+  --customer-country-code <code>      customer country code override
+  -v, --version                       print the CLI version
+  --format <fmt>                      output format: text, json, or yaml
+                                      (default: text)
+  --verbose                           show HTTP requests and responses
+  --no-color                          disable ANSI color (reserved; no effect
+                                      in current builds)
+  -h, --help                          display help for command
 ```
 
 ### `anaf-cli ubl inspect`

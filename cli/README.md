@@ -2,13 +2,13 @@
 
 Command-line tool for Romania's [ANAF e-Factura](https://www.anaf.ro/anaf/internet/ANAF/despre_ANAF/informatii_publice/media/e_factura) system. Upload invoices, check statuses, download responses, and manage OAuth authentication -- all from your terminal.
 
-Built on [anaf-ts-sdk](../sdk/).
+Built on [@florinszilagyi/anaf-ts-sdk](../sdk/).
 
 ## Quick start
 
 ```bash
 # Install
-npm i -g anaf-cli
+npm i -g @florinszilagyi/anaf-cli
 
 # 1. Save your OAuth app credential (once, ever)
 anaf-cli cred set \
@@ -50,9 +50,9 @@ Set the default with `cred set --env test|prod`. Override per-command with `--en
 ## Install
 
 ```bash
-npm i -g anaf-cli
+npm i -g @florinszilagyi/anaf-cli
 # or
-pnpm add -g anaf-cli
+pnpm add -g @florinszilagyi/anaf-cli
 ```
 
 ### From source
@@ -514,9 +514,9 @@ anaf-cli auth ls --format yaml | yq '.data.companies[].cui'
 
 ```bash
 pnpm install
-pnpm --filter anaf-ts-sdk run build
-pnpm --filter anaf-cli run verify   # lint + build + test
-pnpm --filter anaf-cli run test     # jest only
+pnpm --filter @florinszilagyi/anaf-ts-sdk run build
+pnpm --filter @florinszilagyi/anaf-cli run verify   # lint + build + test
+pnpm --filter @florinszilagyi/anaf-cli run test     # jest only
 ```
 
 ## License

@@ -16,7 +16,7 @@ A comprehensive TypeScript SDK for interacting with the Romanian ANAF e-Factura 
 ## Installation
 
 ```bash
-pnpm add anaf-ts-sdk
+pnpm add @florinszilagyi/anaf-ts-sdk
 ```
 
 ## Quick Start
@@ -26,7 +26,7 @@ The SDK is organized into four main classes:
 ### 1. AnafAuthenticator - OAuth 2.0 Authentication
 
 ```typescript
-import { AnafAuthenticator } from 'anaf-ts-sdk';
+import { AnafAuthenticator } from '@florinszilagyi/anaf-ts-sdk';
 
 const auth = new AnafAuthenticator({
   clientId: 'your-oauth-client-id',
@@ -49,7 +49,7 @@ const newTokens = await auth.refreshAccessToken(tokens.refresh_token);
 ### 2. AnafClient - API Operations
 
 ```typescript
-import { AnafClient } from 'anaf-ts-sdk';
+import { AnafClient } from '@florinszilagyi/anaf-ts-sdk';
 
 const client = new AnafClient({
   vatNumber: 'RO12345678',
@@ -86,7 +86,7 @@ const pdfBuffer = await client.convertXmlToPdf(tokens.access_token, xmlContent, 
 ### 3. UblBuilder - UBL XML Generation
 
 ```typescript
-import { UblBuilder } from 'anaf-ts-sdk';
+import { UblBuilder } from '@florinszilagyi/anaf-ts-sdk';
 
 const builder = new UblBuilder();
 
@@ -127,7 +127,7 @@ const xml = builder.generateInvoiceXml({
 ### 4. AnafDetailsClient - Company Data Lookup
 
 ```typescript
-import { AnafDetailsClient } from 'anaf-ts-sdk';
+import { AnafDetailsClient } from '@florinszilagyi/anaf-ts-sdk';
 
 const detailsClient = new AnafDetailsClient({
   timeout: 30000,
@@ -211,7 +211,7 @@ const minimalClient = new AnafDetailsClient({
 ## Complete Example
 
 ```typescript
-import { AnafAuthenticator, AnafClient, AnafDetailsClient, UblBuilder } from 'anaf-ts-sdk';
+import { AnafAuthenticator, AnafClient, AnafDetailsClient, UblBuilder } from '@florinszilagyi/anaf-ts-sdk';
 
 // Setup
 const auth = new AnafAuthenticator({
@@ -568,7 +568,7 @@ const client = new AnafClient({
 The SDK provides specific error types for different scenarios:
 
 ```typescript
-import { AnafAuthenticationError, AnafValidationError, AnafApiError } from 'anaf-ts-sdk';
+import { AnafAuthenticationError, AnafValidationError, AnafApiError } from '@florinszilagyi/anaf-ts-sdk';
 
 try {
   await client.uploadDocument(token, xml);
@@ -591,7 +591,7 @@ try {
 The SDK is written in TypeScript and provides comprehensive type definitions:
 
 ```typescript
-import type { InvoiceInput, UploadStatus, ListMessagesResponse, ValidationResult, OAuthTokens } from 'anaf-ts-sdk';
+import type { InvoiceInput, UploadStatus, ListMessagesResponse, ValidationResult, OAuthTokens } from '@florinszilagyi/anaf-ts-sdk';
 ```
 
 ## Security Best Practices
