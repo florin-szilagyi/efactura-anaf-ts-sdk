@@ -2,9 +2,9 @@ name: Publish SDK (anaf-ts-sdk)
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'sdk/**'
+    tags:
+      - 'sdk-v*.*.*'
+      - 'sdk-v*.*.*-*'
   workflow_dispatch:
     inputs:
       release_type:

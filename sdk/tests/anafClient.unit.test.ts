@@ -589,19 +589,35 @@ describe('AnafEfacturaClient Unit Tests', () => {
 
       const result = await client.getMessages({ zile: 1 });
 
-      expect(result).toEqual(mockSimpleResponse);
-      expect(result.mesaje).toHaveLength(2);
-      expect(result.mesaje![0]).toEqual({
-        data_creare: '202211011415',
-        cif: '8000000000',
-        id_solicitare: '5001130147',
-        detalii: 'Erori de validare identificate la factura primita cu id_incarcare=5001130147',
-        tip: 'ERORI FACTURA',
-        id: '3001293434',
-      });
+      // Top-level fields are unchanged
       expect(result.serial).toBe('1234AA456');
       expect(result.cui).toBe('8000000000');
       expect(result.titlu).toBe('Lista Mesaje disponibile din ultimele 1 zile');
+      expect(result.mesaje).toHaveLength(2);
+
+      // Messages are transformed: id_solicitare and cif are dropped, parsed fields from detalii are added
+      expect(result.mesaje![0]).toEqual({
+        data_creare: '202211011415',
+        detalii: 'Erori de validare identificate la factura primita cu id_incarcare=5001130147',
+        tip: 'ERORI FACTURA',
+        id: '3001293434',
+        id_incarcare: '5001130147',
+      });
+      expect(result.mesaje![0]).not.toHaveProperty('id_solicitare');
+      expect(result.mesaje![0]).not.toHaveProperty('cif');
+
+      // Second message has all three parsed fields
+      expect(result.mesaje![1]).toEqual({
+        data_creare: '202211011336',
+        detalii: 'Factura cu id_incarcare=5001131297 emisa de cif_emitent=8000000000 pentru cif_beneficiar=3',
+        tip: 'FACTURA TRIMISA',
+        id: '3001503294',
+        id_incarcare: '5001131297',
+        cif_emitent: '8000000000',
+        cif_beneficiar: '3',
+      });
+      expect(result.mesaje![1]).not.toHaveProperty('id_solicitare');
+      expect(result.mesaje![1]).not.toHaveProperty('cif');
     });
 
     test('should parse paginated list response matching OpenAPI schema', async () => {
@@ -652,9 +668,29 @@ describe('AnafEfacturaClient Unit Tests', () => {
 
       const result = await client.getMessagesPaginated(params);
 
-      expect(result).toEqual(mockPaginatedResponse);
+      // Top-level fields are unchanged
       expect(result.mesaje).toHaveLength(2);
       expect(result.numar_inregistrari_in_pagina).toBe(2);
+
+      // Messages are transformed: id_solicitare and cif are dropped, parsed fields from detalii are added
+      expect(result.mesaje![0]).toEqual({
+        data_creare: '202210311452',
+        detalii: 'Erori de validare identificate la factura primita cu id_incarcare=5001120362',
+        tip: 'ERORI FACTURA',
+        id: '3001474425',
+        id_incarcare: '5001120362',
+      });
+      expect(result.mesaje![0]).not.toHaveProperty('id_solicitare');
+      expect(result.mesaje![0]).not.toHaveProperty('cif');
+      expect(result.mesaje![1]).toEqual({
+        data_creare: '202210311452',
+        detalii: 'Erori de validare identificate la factura primita cu id_incarcare=5001120366',
+        tip: 'ERORI FACTURA',
+        id: '3001474424',
+        id_incarcare: '5001120366',
+      });
+      expect(result.mesaje![1]).not.toHaveProperty('id_solicitare');
+      expect(result.mesaje![1]).not.toHaveProperty('cif');
       expect(result.numar_total_inregistrari_per_pagina).toBe(500);
       expect(result.numar_total_inregistrari).toBe(14130);
       expect(result.numar_total_pagini).toBe(29);

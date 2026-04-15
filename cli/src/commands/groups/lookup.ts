@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import type { CommandDeps } from '../buildProgram';
 import { CliError } from '../../output/errors';
 import { renderSuccess } from '../../output';
+import { kv, table } from '../../output/format';
 
 interface CompanyCmdOpts {
   cache?: boolean; // commander: --no-cache → cache: false
@@ -24,7 +25,14 @@ function lookupOptsFrom(opts: CompanyCmdOpts): { useCache?: boolean; refreshCach
 export async function lookupCompany(deps: CommandDeps, cuis: string[], opts: CompanyCmdOpts): Promise<void> {
   const companies = await deps.services.lookupService.batchGetCompanies(cuis, lookupOptsFrom(opts));
   renderSuccess(deps.output, { companies }, (d) =>
-    d.companies.map((c) => `${c.vatCode}\t${c.name}\t${c.address ?? ''}`).join('\n')
+    table(
+      [
+        { key: 'vatCode', header: 'CUI' },
+        { key: 'name', header: 'Name' },
+        { key: 'address', header: 'Address' },
+      ],
+      d.companies.map((c) => ({ vatCode: c.vatCode, name: c.name, address: c.address ?? '' }))
+    )
   );
 }
 
@@ -35,7 +43,12 @@ export async function lookupCompanyAsync(deps: CommandDeps, cui: string, opts: C
     maxRetries: opts.maxRetries ? Number(opts.maxRetries) : undefined,
   };
   const company = await deps.services.lookupService.getCompanyAsync(cui, polling);
-  renderSuccess(deps.output, company, (c) => `${c.vatCode}\t${c.name}`);
+  renderSuccess(deps.output, company, (c) =>
+    kv([
+      ['CUI', c.vatCode],
+      ['Name', c.name],
+    ])
+  );
 }
 
 export async function lookupValidateCui(deps: CommandDeps, cui: string): Promise<void> {

@@ -27,12 +27,17 @@ describe('ERROR_CODES registry', () => {
 
   it('isKnownErrorCode recognizes registered codes', () => {
     expect(isKnownErrorCode('AUTH_FAILED')).toBe(true);
-    expect(isKnownErrorCode('CONTEXT_NOT_FOUND')).toBe(true);
+    expect(isKnownErrorCode('COMPANY_NOT_FOUND')).toBe(true);
+    expect(isKnownErrorCode('NO_ACTIVE_COMPANY')).toBe(true);
+    expect(isKnownErrorCode('CREDENTIAL_NOT_CONFIGURED')).toBe(true);
     expect(isKnownErrorCode('BAD_USAGE')).toBe(true);
   });
 
   it('isKnownErrorCode rejects unknown codes', () => {
     expect(isKnownErrorCode('TOTALLY_MADE_UP')).toBe(false);
     expect(isKnownErrorCode('')).toBe(false);
+    // Old context-related codes should no longer be registered
+    expect(isKnownErrorCode('CONTEXT_NOT_FOUND')).toBe(false);
+    expect(isKnownErrorCode('NO_CURRENT_CONTEXT')).toBe(false);
   });
 });

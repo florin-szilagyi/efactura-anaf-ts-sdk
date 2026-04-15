@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Writable } from 'node:stream';
 import { runProgram } from '../../src/commands/runProgram';
-import { ContextService, TokenStore } from '../../src/state';
+import { CompanyService, CredentialService, ConfigStore, TokenStore } from '../../src/state';
 import { AuthService, LookupService, EfacturaService, UblService } from '../../src/services';
 import { getXdgPaths } from '../../src/state/paths';
 import { EXIT_CODES } from '../../src/output/exitCodes';
@@ -19,7 +19,9 @@ class Cap extends Writable {
 
 interface RunHarness {
   dir: string;
-  contextService: ContextService;
+  companyService: CompanyService;
+  credentialService: CredentialService;
+  configStore: ConfigStore;
   tokenStore: TokenStore;
   authService: AuthService;
   lookupService: LookupService;
@@ -35,21 +37,27 @@ function buildHarness(): RunHarness {
     dataHome: path.join(dir, 'data'),
     cacheHome: path.join(dir, 'cache'),
   });
-  const contextService = new ContextService({ paths });
+  const companyService = new CompanyService({ paths });
+  const credentialService = new CredentialService({ paths });
+  const configStore = new ConfigStore({ paths });
   const tokenStore = new TokenStore({ paths });
   const authService = new AuthService({
-    contextService,
+    credentialService,
+    companyService,
+    configStore,
     tokenStore,
     authenticatorFactory: () => ({}) as never,
   });
   // Real AnafDetailsClient — used only for isValidVatCode (pure local), no network in golden tests.
   const lookupService = new LookupService({ client: new AnafDetailsClient(), paths });
-  const efacturaService = new EfacturaService({ contextService, tokenStore, authService });
-  const ublService = new UblService({ contextService, lookupService });
+  const efacturaService = new EfacturaService({ companyService, credentialService, configStore, tokenStore });
+  const ublService = new UblService({ companyService, configStore, lookupService });
 
   return {
     dir,
-    contextService,
+    companyService,
+    credentialService,
+    configStore,
     tokenStore,
     authService,
     lookupService,
@@ -66,7 +74,9 @@ function buildHarness(): RunHarness {
           exitCode = code;
         },
         services: {
-          contextService,
+          companyService,
+          credentialService,
+          configStore,
           tokenStore,
           authService,
           lookupService,
@@ -111,91 +121,50 @@ describe('JSON envelope golden consistency', () => {
     fs.rmSync(h.dir, { recursive: true, force: true });
   });
 
-  it('ctx ls success envelope (empty state)', async () => {
-    const result = await h.run(['--json', 'ctx', 'ls']);
+  it('auth ls success envelope (empty state)', async () => {
+    const result = await h.run(['--format', 'json', 'auth', 'ls']);
     expect(result.exitCode).toBe(EXIT_CODES.SUCCESS);
     const data = expectSuccessEnvelope(result.stdout);
-    expect(data).toEqual({ current: undefined, contexts: [] });
+    expect(data).toMatchObject({ companies: [] });
   });
 
-  it('ctx add success envelope carries the created context fields', async () => {
-    const result = await h.run([
-      '--json',
-      'ctx',
-      'add',
-      '--name',
-      'acme-prod',
-      '--cui',
-      'RO12345678',
-      '--client-id',
-      'cid',
-      '--redirect-uri',
-      'https://localhost/cb',
-      '--env',
-      'prod',
-    ]);
-    expect(result.exitCode).toBe(EXIT_CODES.SUCCESS);
+  it('auth ls after adding a company', async () => {
+    h.credentialService.set({ clientId: 'cid', redirectUri: 'https://localhost:9002/cb' });
+    h.companyService.add({ cui: '12345678', name: 'Acme SRL' });
+    h.configStore.setActiveCui('12345678');
+    const result = await h.run(['--format', 'json', 'auth', 'ls']);
     const data = expectSuccessEnvelope(result.stdout);
-    expect(data).toEqual({
-      name: 'acme-prod',
-      environment: 'prod',
-      companyCui: 'RO12345678',
+    const companies = data.companies as Array<Record<string, unknown>>;
+    expect(companies).toHaveLength(1);
+    expect(companies[0]).toMatchObject({
+      cui: '12345678',
+      name: 'Acme SRL',
+      isActive: true,
     });
-  });
-
-  it('ctx ls after add shows one context and no current', async () => {
-    h.contextService.add({
-      name: 'acme-prod',
-      companyCui: 'RO12345678',
-      environment: 'prod',
-      auth: { clientId: 'cid', redirectUri: 'https://localhost/cb' },
-    });
-    const result = await h.run(['--json', 'ctx', 'ls']);
-    const data = expectSuccessEnvelope(result.stdout);
-    const contexts = data.contexts as Array<Record<string, unknown>>;
-    expect(contexts).toHaveLength(1);
-    expect(contexts[0]).toMatchObject({
-      name: 'acme-prod',
-      environment: 'prod',
-      companyCui: 'RO12345678',
-      isCurrent: false,
-    });
-  });
-
-  it('ctx current error envelope when no current context', async () => {
-    const result = await h.run(['--json', 'ctx', 'current']);
-    expect(result.exitCode).toBe(EXIT_CODES.LOCAL_STATE);
-    expect(result.stdout).toBe('');
-    const error = expectErrorEnvelope(result.stderr);
-    expect(error.code).toBe('NO_CURRENT_CONTEXT');
   });
 
   it('auth whoami missing-token success envelope', async () => {
-    h.contextService.add({
-      name: 'acme-prod',
-      companyCui: 'RO12345678',
-      environment: 'prod',
-      auth: { clientId: 'cid', redirectUri: 'https://localhost/cb' },
-    });
-    h.contextService.setCurrent('acme-prod');
-    const result = await h.run(['--json', 'auth', 'whoami']);
+    h.credentialService.set({ clientId: 'cid', redirectUri: 'https://localhost:9002/cb' });
+    h.companyService.add({ cui: '12345678', name: 'Acme SRL' });
+    h.configStore.setActiveCui('12345678');
+    const result = await h.run(['--format', 'json', 'auth', 'whoami']);
     expect(result.exitCode).toBe(EXIT_CODES.SUCCESS);
     const data = expectSuccessEnvelope(result.stdout);
     expect(data).toMatchObject({
-      context: 'acme-prod',
+      cui: '12345678',
       tokenStatus: 'missing',
     });
   });
 
   it('lookup validate-cui success envelope carries cui + valid:true', async () => {
-    const result = await h.run(['--json', 'lookup', 'validate-cui', 'RO12345678']);
+    const result = await h.run(['--format', 'json', 'lookup', 'validate-cui', 'RO12345678']);
     expect(result.exitCode).toBe(EXIT_CODES.SUCCESS);
     const data = expectSuccessEnvelope(result.stdout);
     expect(data).toEqual({ cui: 'RO12345678', valid: true });
   });
 
   it('lookup validate-cui error envelope for invalid cui uses USER_INPUT exit', async () => {
-    const result = await h.run(['--json', 'lookup', 'validate-cui', 'not-a-cui']);
+    const result = await h.run(['--format', 'json', 'lookup', 'validate-cui', 'not-a-cui']);
     expect(result.exitCode).toBe(EXIT_CODES.USER_INPUT);
     expect(result.stdout).toBe('');
     const error = expectErrorEnvelope(result.stderr);
@@ -203,7 +172,7 @@ describe('JSON envelope golden consistency', () => {
   });
 
   it('unknown command produces a valid JSON envelope with BAD_USAGE (no commander noise)', async () => {
-    const result = await h.run(['--json', 'definitely-not-a-command']);
+    const result = await h.run(['--format', 'json', 'definitely-not-a-command']);
     expect(result.exitCode).toBe(EXIT_CODES.USER_INPUT);
     // stderr must parse as a single JSON envelope (no leading "error:" line)
     const error = expectErrorEnvelope(result.stderr);
@@ -211,26 +180,21 @@ describe('JSON envelope golden consistency', () => {
   });
 
   it('unknown global option produces a valid JSON envelope', async () => {
-    const result = await h.run(['--json', '--definitely-not-a-flag']);
+    const result = await h.run(['--format', 'json', '--definitely-not-a-flag']);
     expect(result.exitCode).toBe(EXIT_CODES.USER_INPUT);
     const error = expectErrorEnvelope(result.stderr);
     expect(error.code).toBe('BAD_USAGE');
   });
 
   it('every success envelope is { success: true, data: ... } exactly', async () => {
-    h.contextService.add({
-      name: 'acme-prod',
-      companyCui: 'RO12345678',
-      environment: 'prod',
-      auth: { clientId: 'cid', redirectUri: 'https://localhost/cb' },
-    });
-    h.contextService.setCurrent('acme-prod');
+    h.credentialService.set({ clientId: 'cid', redirectUri: 'https://localhost:9002/cb' });
+    h.companyService.add({ cui: '12345678', name: 'Acme SRL' });
+    h.configStore.setActiveCui('12345678');
 
     const commands: readonly (readonly string[])[] = [
-      ['--json', 'ctx', 'ls'],
-      ['--json', 'ctx', 'current'],
-      ['--json', 'auth', 'whoami'],
-      ['--json', 'lookup', 'validate-cui', 'RO12345678'],
+      ['--format', 'json', 'auth', 'ls'],
+      ['--format', 'json', 'auth', 'whoami'],
+      ['--format', 'json', 'lookup', 'validate-cui', 'RO12345678'],
     ];
 
     for (const argv of commands) {
@@ -245,10 +209,8 @@ describe('JSON envelope golden consistency', () => {
 
   it('every error envelope is { success: false, error: { code, message } } exactly', async () => {
     const commands: readonly (readonly string[])[] = [
-      ['--json', 'ctx', 'current'], // NO_CURRENT_CONTEXT
-      ['--json', 'ctx', 'use', 'nope'], // CONTEXT_NOT_FOUND
-      ['--json', 'lookup', 'validate-cui', 'not-a-cui'], // INVALID_CUI
-      ['--json', 'definitely-not-a-command'], // BAD_USAGE
+      ['--format', 'json', 'lookup', 'validate-cui', 'not-a-cui'], // INVALID_CUI
+      ['--format', 'json', 'definitely-not-a-command'], // BAD_USAGE
     ];
 
     for (const argv of commands) {

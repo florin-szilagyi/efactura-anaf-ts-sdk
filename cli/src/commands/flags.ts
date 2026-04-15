@@ -1,30 +1,38 @@
 import type { Command } from 'commander';
 import type { OutputFormat } from '../output';
 
-export const GLOBAL_FLAG_NAMES = ['json', 'context', 'no-color'] as const;
+export const GLOBAL_FLAG_NAMES = ['format', 'verbose', 'no-color'] as const;
 
 export interface GlobalOpts {
-  json: boolean;
-  context?: string;
+  format?: string;
+  verbose: boolean;
   color: boolean;
 }
 
+const VALID_FORMATS: ReadonlySet<string> = new Set(['text', 'json', 'yaml']);
+
 export function attachGlobalFlags(program: Command): void {
   program
-    .option('--json', 'machine-readable JSON output')
-    .option('--context <name>', 'override the active context for this invocation')
+    .option('--format <fmt>', 'output format: text, json, or yaml (default: text)')
+    .option('--verbose', 'show HTTP requests and responses')
     .option('--no-color', 'disable ANSI color (reserved; no effect in current builds)');
 }
 
-export function resolveOutputFormatFromOpts(opts: { json?: boolean }): OutputFormat {
-  return opts.json === true ? 'json' : 'text';
+export function resolveOutputFormatFromOpts(opts: { format?: string }): OutputFormat {
+  if (opts.format) {
+    if (!VALID_FORMATS.has(opts.format)) {
+      throw new Error(`invalid --format "${opts.format}": expected text, json, or yaml`);
+    }
+    return opts.format as OutputFormat;
+  }
+  return 'text';
 }
 
 export function extractGlobalOpts(program: Command): GlobalOpts {
-  const raw = program.opts() as { json?: boolean; context?: string; color?: boolean };
+  const raw = program.opts() as { format?: string; verbose?: boolean; color?: boolean };
   return {
-    json: raw.json === true,
-    context: raw.context,
-    color: raw.color !== false, // commander turns --no-color into color: false
+    format: raw.format,
+    verbose: raw.verbose === true,
+    color: raw.color !== false,
   };
 }

@@ -7,7 +7,7 @@
  *
  * @example
  * ```typescript
- * import { AnafAuthenticator, AnafEfacturaClient, AnafDetailsClient } from 'efactura-ts-sdk';
+ * import { AnafAuthenticator, AnafEfacturaClient, AnafDetailsClient } from 'anaf-ts-sdk';
  *
  * // Setup authentication
  * const auth = new AnafAuthenticator({
@@ -54,6 +54,10 @@ export * from './errors';
 
 // UBL Builder
 export * from './ubl';
+
+// Message utilities
+export { parseDetalii } from './utils/messageParser';
+export { enrichMessagesWithCompanyData } from './utils/messageEnricher';
 
 // Utilities (for advanced users)
 export * as Utils from './utils/xmlParser';

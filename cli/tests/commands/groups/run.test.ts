@@ -8,6 +8,7 @@ import { CliError } from '../../../src/output/errors';
 import { runCommand } from '../../../src/commands/groups/run';
 import type { UblBuildAction } from '../../../src/actions';
 import type { UblBuildResult } from '../../../src/services';
+import { getXdgPaths } from '../../../src/state';
 
 class Cap extends Writable {
   buf = '';
@@ -43,16 +44,25 @@ class StubUblService {
   }
 }
 
-class StubContextService {
-  lastResolveArgs: Array<string | undefined> = [];
-  resolve(explicit?: string): { name: string } {
-    this.lastResolveArgs.push(explicit);
-    return { name: explicit ?? 'acme-prod' };
+class StubConfigStore {
+  activeCui: string | undefined = '12345678';
+  getActiveCui(): string | undefined {
+    return this.activeCui;
   }
+  setActiveCui(cui: string | undefined): void {
+    this.activeCui = cui;
+  }
+  getEnv(): 'test' | 'prod' {
+    return 'test';
+  }
+  setEnv(): void {}
+  read() {
+    return { activeCui: this.activeCui };
+  }
+  write() {}
 }
 
 interface UploadArgsLike {
-  contextName?: string;
   xml: string;
   clientSecret: string;
   isB2C?: boolean;
@@ -75,7 +85,7 @@ function harness(): {
   text: ReturnType<typeof makeOutputContext>;
   json: ReturnType<typeof makeOutputContext>;
   ublService: StubUblService;
-  contextService: StubContextService;
+  configStore: StubConfigStore;
   efacturaService: StubEfacturaService;
   services: never;
 } {
@@ -84,10 +94,10 @@ function harness(): {
   const text = makeOutputContext({ format: 'text', streams: { stdout, stderr } });
   const json = makeOutputContext({ format: 'json', streams: { stdout, stderr } });
   const ublService = new StubUblService();
-  const contextService = new StubContextService();
+  const configStore = new StubConfigStore();
   const efacturaService = new StubEfacturaService();
-  const services = { ublService, contextService, efacturaService } as never;
-  return { stdout, stderr, text, json, ublService, contextService, efacturaService, services };
+  const services = { ublService, configStore, efacturaService } as never;
+  return { stdout, stderr, text, json, ublService, configStore, efacturaService, services };
 }
 
 function writeTmp(contents: string, name = 'job.yaml'): { dir: string; file: string; cleanup: () => void } {
@@ -111,7 +121,7 @@ spec:
 
 describe('run group', () => {
   it('registers run command with --file and --dry-run', () => {
-    const program = buildProgram({ output: makeOutputContext({ format: 'text' }), services: {} as never });
+    const program = buildProgram({ output: makeOutputContext({ format: 'text' }), services: {} as never, paths: getXdgPaths() });
     const run = program.commands.find((c) => c.name() === 'run')!;
     const longs = run.options.map((o) => o.long);
     expect(longs).toEqual(expect.arrayContaining(['--file', '--dry-run']));
@@ -121,7 +131,7 @@ describe('run group', () => {
 describe('runCommand — argument validation', () => {
   it('throws BAD_USAGE when --file is missing', async () => {
     const h = harness();
-    await expect(runCommand({ output: h.text, services: h.services }, {})).rejects.toBeInstanceOf(CliError);
+    await expect(runCommand({ output: h.text, services: h.services, paths: getXdgPaths() }, {})).rejects.toBeInstanceOf(CliError);
   });
 });
 
@@ -130,7 +140,7 @@ describe('runCommand — dry-run', () => {
     const h = harness();
     const { file, cleanup } = writeTmp(VALID_UBL_MANIFEST);
     try {
-      await runCommand({ output: h.text, services: h.services }, { file, dryRun: true });
+      await runCommand({ output: h.text, services: h.services, paths: getXdgPaths() }, { file, dryRun: true });
       const parsed = JSON.parse(h.stdout.buf) as { kind: string; invoice: { invoiceNumber: string } };
       expect(parsed.kind).toBe('ubl.build');
       expect(parsed.invoice.invoiceNumber).toBe('FCT-M');
@@ -141,11 +151,11 @@ describe('runCommand — dry-run', () => {
     }
   });
 
-  it('emits a JSON envelope with the normalized action in --json mode', async () => {
+  it('emits a JSON envelope with the normalized action in --format json mode', async () => {
     const h = harness();
     const { file, cleanup } = writeTmp(VALID_UBL_MANIFEST);
     try {
-      await runCommand({ output: h.json, services: h.services }, { file, dryRun: true });
+      await runCommand({ output: h.json, services: h.services, paths: getXdgPaths() }, { file, dryRun: true });
       const parsed = JSON.parse(h.stdout.buf) as { success: boolean; data: { kind: string } };
       expect(parsed.success).toBe(true);
       expect(parsed.data.kind).toBe('ubl.build');
@@ -168,7 +178,7 @@ spec:
     - "x|1|100|19"
 `);
     try {
-      await expect(runCommand({ output: h.text, services: h.services }, { file, dryRun: true })).rejects.toBeInstanceOf(
+      await expect(runCommand({ output: h.text, services: h.services, paths: getXdgPaths() }, { file, dryRun: true })).rejects.toBeInstanceOf(
         CliError
       );
     } finally {
@@ -182,12 +192,12 @@ describe('runCommand — UblBuild dispatch', () => {
     const h = harness();
     const { file, cleanup } = writeTmp(VALID_UBL_MANIFEST);
     try {
-      await runCommand({ output: h.text, services: h.services }, { file });
+      await runCommand({ output: h.text, services: h.services, paths: getXdgPaths() }, { file });
       expect(h.stdout.buf).toContain('<?xml');
       expect(h.stdout.buf).toContain('Invoice');
       expect(h.ublService.lastAction?.invoice.invoiceNumber).toBe('FCT-M');
-      // Context was re-resolved via the stub.
-      expect(h.contextService.lastResolveArgs).toContain('acme-prod');
+      // Context was resolved from the active CUI in configStore
+      expect(h.ublService.lastAction?.context).toBe('12345678');
     } finally {
       cleanup();
     }
@@ -214,7 +224,7 @@ output:
 `;
       const manifestPath = path.join(tmp, 'job.yaml');
       fs.writeFileSync(manifestPath, manifest);
-      await runCommand({ output: h.text, services: h.services }, { file: manifestPath });
+      await runCommand({ output: h.text, services: h.services, paths: getXdgPaths() }, { file: manifestPath });
       expect(fs.readFileSync(outPath, 'utf8')).toContain('<?xml');
       expect(h.stderr.buf).toContain(outPath);
       // Stdout stays clean when writing to a file in text mode.
@@ -224,11 +234,11 @@ output:
     }
   });
 
-  it('emits a JSON envelope with xml string in --json mode (stdout target)', async () => {
+  it('emits a JSON envelope with xml string in --format json mode (stdout target)', async () => {
     const h = harness();
     const { file, cleanup } = writeTmp(VALID_UBL_MANIFEST);
     try {
-      await runCommand({ output: h.json, services: h.services }, { file });
+      await runCommand({ output: h.json, services: h.services, paths: getXdgPaths() }, { file });
       const parsed = JSON.parse(h.stdout.buf) as { success: boolean; data: { xml: string; xmlPath: string | null } };
       expect(parsed.success).toBe(true);
       expect(parsed.data.xml).toContain('<?xml');
@@ -270,12 +280,11 @@ spec:
     isB2C: false
 `
       );
-      await runCommand({ output: h.text, services: h.services }, { file: manifestPath });
+      await runCommand({ output: h.text, services: h.services, paths: getXdgPaths() }, { file: manifestPath });
       expect(h.efacturaService.uploadCalls).toHaveLength(1);
       const call = h.efacturaService.uploadCalls[0];
       expect(call.xml).toContain('<?xml');
       expect(call.clientSecret).toBe('test-secret');
-      expect(call.contextName).toBe('acme-prod');
       expect(call.isB2C).toBe(false);
       expect(call.options?.standard).toBe('UBL');
       expect(h.stdout.buf).toContain('u-777');
@@ -308,7 +317,7 @@ spec:
     standard: UBL
 `
       );
-      await runCommand({ output: h.text, services: h.services }, { file: manifestPath });
+      await runCommand({ output: h.text, services: h.services, paths: getXdgPaths() }, { file: manifestPath });
       expect(h.ublService.lastAction?.invoice.invoiceNumber).toBe('FCT-NESTED');
       expect(h.efacturaService.uploadCalls).toHaveLength(1);
       expect(h.efacturaService.uploadCalls[0].xml).toContain('<?xml');
@@ -337,7 +346,7 @@ spec:
       );
       let error: unknown;
       try {
-        await runCommand({ output: h.text, services: h.services }, { file: manifestPath });
+        await runCommand({ output: h.text, services: h.services, paths: getXdgPaths() }, { file: manifestPath });
       } catch (e) {
         error = e;
       }
@@ -371,7 +380,7 @@ spec:
       );
       let error: unknown;
       try {
-        await runCommand({ output: h.text, services: h.services }, { file: manifestPath });
+        await runCommand({ output: h.text, services: h.services, paths: getXdgPaths() }, { file: manifestPath });
       } catch (e) {
         error = e;
       }

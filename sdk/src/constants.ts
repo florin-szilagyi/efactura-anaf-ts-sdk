@@ -14,14 +14,14 @@ import { StandardType } from './types';
 /**
  * OAuth-based API endpoints (recommended)
  */
-export const BASE_PATH_OAUTH_TEST = 'https://api.anaf.ro/test/FCTEL/rest';
-export const BASE_PATH_OAUTH_PROD = 'https://api.anaf.ro/prod/FCTEL/rest';
+export const BASE_PATH_OAUTH_TEST = 'https://api.anaf.ro/test/FCTEL/rest/';
+export const BASE_PATH_OAUTH_PROD = 'https://api.anaf.ro/prod/FCTEL/rest/';
 
 /**
  * Certificate-based API endpoints
  */
-export const BASE_PATH_CERT_TEST = 'https://webserviceapl.anaf.ro/test/FCTEL/rest';
-export const BASE_PATH_CERT_PROD = 'https://webserviceapl.anaf.ro/prod/FCTEL/rest';
+export const BASE_PATH_CERT_TEST = 'https://webserviceapl.anaf.ro/test/FCTEL/rest/';
+export const BASE_PATH_CERT_PROD = 'https://webserviceapl.anaf.ro/prod/FCTEL/rest/';
 
 // =============================================================================
 // OAuth 2.0 Authentication Endpoints
@@ -48,42 +48,42 @@ export const OAUTH_TOKEN_URL = 'https://logincert.anaf.ro/anaf-oauth2/v1/token';
  * POST {basePath}/upload?standard={UBL|CN|CII|RASP}&cif={vatNumber}
  * Optional params: extern, autofactura, executare
  */
-export const UPLOAD_PATH = '/upload';
+export const UPLOAD_PATH = 'upload';
 
 /**
  * Upload B2C (Business to Consumer) invoice
  * POST {basePath}/uploadb2c?cif={vatNumber}
  * Used for simplified B2C invoices
  */
-export const UPLOAD_B2C_PATH = '/uploadb2c';
+export const UPLOAD_B2C_PATH = 'uploadb2c';
 
 /**
  * Check upload status
  * GET {basePath}/stareMesaj?id_incarcare={uploadId}
  * Returns current processing status of uploaded document
  */
-export const STATUS_MESSAGE_PATH = '/stareMesaj';
+export const STATUS_MESSAGE_PATH = 'stareMesaj';
 
 /**
  * Download processed document
  * GET {basePath}/descarcare?id={downloadId}
  * Downloads the processed invoice or error details
  */
-export const DOWNLOAD_PATH = '/descarcare';
+export const DOWNLOAD_PATH = 'descarcare';
 
 /**
  * List messages (simple)
  * GET {basePath}/listaMesajeFactura?zile={days}&cif={vatNumber}
  * Optional param: filtru={E|T|P|R}
  */
-export const LIST_MESSAGES_PATH = '/listaMesajeFactura';
+export const LIST_MESSAGES_PATH = 'listaMesajeFactura';
 
 /**
  * List messages with pagination
  * GET {basePath}/listaMesajePaginatieFactura?startTime={timestamp}&endTime={timestamp}&pagina={page}&cif={vatNumber}
  * Optional param: filtru={E|T|P|R}
  */
-export const LIST_MESSAGES_PAGINATED_PATH = '/listaMesajePaginatieFactura';
+export const LIST_MESSAGES_PAGINATED_PATH = 'listaMesajePaginatieFactura';
 
 // =============================================================================
 // Validation and Conversion Endpoints
@@ -196,6 +196,9 @@ export const getBasePath = (authMode: 'oauth' | 'cert' = 'oauth', testMode: bool
 // Query Parameter Builders
 // =============================================================================
 
+/** Strip country prefix (e.g. "RO") to get the numeric CIF that ANAF expects. */
+const numericCif = (vatNumber: string): string => vatNumber.replace(/^RO/i, '');
+
 /**
  * Build upload query parameters
  */
@@ -209,7 +212,7 @@ export const buildUploadParams = (
   } = {}
 ): URLSearchParams => {
   const params = new URLSearchParams();
-  params.append('cif', vatNumber);
+  params.append('cif', numericCif(vatNumber));
   params.append('standard', options.standard || 'UBL');
 
   if (options.extern) params.append('extern', 'DA');
@@ -242,7 +245,7 @@ export const buildDownloadParams = (downloadId: string): URLSearchParams => {
  */
 export const buildListMessagesParams = (vatNumber: string, days: number, filter?: string): URLSearchParams => {
   const params = new URLSearchParams();
-  params.append('cif', vatNumber);
+  params.append('cif', numericCif(vatNumber));
   params.append('zile', days.toString());
 
   if (filter) params.append('filtru', filter);
@@ -261,7 +264,7 @@ export const buildPaginatedMessagesParams = (
   filter?: string
 ): URLSearchParams => {
   const params = new URLSearchParams();
-  params.append('cif', vatNumber);
+  params.append('cif', numericCif(vatNumber));
   params.append('startTime', startTime.toString());
   params.append('endTime', endTime.toString());
   params.append('pagina', page.toString());

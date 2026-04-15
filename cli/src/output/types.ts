@@ -1,4 +1,4 @@
-export type OutputFormat = 'text' | 'json';
+export type OutputFormat = 'text' | 'json' | 'yaml';
 
 export interface WriteStreams {
   stdout: NodeJS.WritableStream;

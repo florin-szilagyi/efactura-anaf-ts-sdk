@@ -53,6 +53,11 @@ export interface UblBuildAction {
     lines: InvoiceLineAction[];
     /** Defaults to RON downstream. */
     currency?: string;
+    /**
+     * Total VAT amount in RON when invoice currency is not RON (CIUS-RO BR-53 / BT-111).
+     * Required for valid non-RON invoices.
+     */
+    taxCurrencyTaxAmount?: number;
     note?: string;
     paymentIban?: string;
     overrides?: InvoiceOverrides;

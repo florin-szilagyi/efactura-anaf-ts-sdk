@@ -15,10 +15,11 @@ export interface XdgPaths {
   appDataDir: string;
   appCacheDir: string;
   configFile: string;
-  contextsDir: string;
+  credentialFile: string;
+  companiesDir: string;
   tokensDir: string;
   companyCacheDir: string;
-  contextFile(name: string): string;
+  companyFile(cui: string): string;
   tokenFile(name: string): string;
   cacheFile(cui: string): string;
 }
@@ -39,7 +40,7 @@ export function getXdgPaths(roots?: XdgRoots): XdgPaths {
   const appConfigDir = path.join(r.configHome, APP_DIR);
   const appDataDir = path.join(r.dataHome, APP_DIR);
   const appCacheDir = path.join(r.cacheHome, APP_DIR);
-  const contextsDir = path.join(appConfigDir, 'contexts');
+  const companiesDir = path.join(appConfigDir, 'companies');
   const tokensDir = path.join(appDataDir, 'tokens');
   const companyCacheDir = path.join(appCacheDir, 'company-cache');
   return {
@@ -50,10 +51,11 @@ export function getXdgPaths(roots?: XdgRoots): XdgPaths {
     appDataDir,
     appCacheDir,
     configFile: path.join(appConfigDir, 'config.yaml'),
-    contextsDir,
+    credentialFile: path.join(appConfigDir, 'credential.yaml'),
+    companiesDir,
     tokensDir,
     companyCacheDir,
-    contextFile: (name: string) => path.join(contextsDir, `${name}.yaml`),
+    companyFile: (cui: string) => path.join(companiesDir, `${cui}.yaml`),
     tokenFile: (name: string) => path.join(tokensDir, `${name}.json`),
     cacheFile: (cui: string) => path.join(companyCacheDir, `${cui}.json`),
   };

@@ -56,6 +56,7 @@ function buildPartyXml(root: XMLBuilder, tagName: string, party: Party): void {
 
   // Postal Address
   partyElement
+  const postalAddress = partyElement
     .ele('cac:PostalAddress')
     .ele('cbc:StreetName')
     .txt(address.street || '')
@@ -65,10 +66,15 @@ function buildPartyXml(root: XMLBuilder, tagName: string, party: Party): void {
     .up()
     .ele('cbc:PostalZone')
     .txt(address.postalZone || '')
-    .up()
-    .ele('cbc:CountrySubentity')
-    .txt(address.county || '')
-    .up()
+    .up();
+
+  // Only emit CountrySubentity when a valid county code is provided.
+  // An empty element triggers BR-RO-110/111 warnings from ANAF.
+  if (address.county?.trim()) {
+    postalAddress.ele('cbc:CountrySubentity').txt(address.county).up();
+  }
+
+  postalAddress
     .ele('cac:Country')
     .ele('cbc:IdentificationCode')
     .txt(address.countryCode || DEFAULT_COUNTRY_CODE)
@@ -378,6 +384,11 @@ export function buildInvoiceXml(input: InvoiceInput): string {
 
   root.ele('cbc:DocumentCurrencyCode').txt(currency).up();
 
+  // BR-RO-030: when invoice currency is not RON, VAT must be accounted in RON
+  if (currency !== 'RON') {
+    root.ele('cbc:TaxCurrencyCode').txt('RON').up();
+  }
+
   // Invoice Period (optional)
   if (input.invoicePeriodEndDate) {
     const periodEndDate = formatDateForAnaf(input.invoicePeriodEndDate);
@@ -462,6 +473,17 @@ export function buildInvoiceXml(input: InvoiceInput): string {
       .up();
   }
 
+  // BR-53: when TaxCurrencyCode (BT-6) is present, emit a second TaxTotal with the
+  // accounting-currency tax amount (BT-111). No subtotals required for this element.
+  if (currency !== 'RON' && input.taxCurrencyTaxAmount !== undefined) {
+    root
+      .ele('cac:TaxTotal')
+      .ele('cbc:TaxAmount', { currencyID: 'RON' })
+      .txt(input.taxCurrencyTaxAmount.toFixed(2))
+      .up()
+      .up();
+  }
+
   // Legal monetary total
   root
     .ele('cac:LegalMonetaryTotal')
@@ -509,6 +531,9 @@ export function buildInvoiceXml(input: InvoiceInput): string {
       .up()
       .ele('cac:Item')
       .ele('cbc:Description')
+      .txt(line.description)
+      .up()
+      .ele('cbc:Name')
       .txt(line.description)
       .up()
       .ele('cac:ClassifiedTaxCategory')

@@ -2,11 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { UblService } from '../../src/services/ublService';
-import { ContextService } from '../../src/state';
+import { CompanyService, ConfigStore } from '../../src/state';
 import { getXdgPaths } from '../../src/state/paths';
 import { CliError } from '../../src/output/errors';
 import { normalizeUblBuildAction } from '../../src/actions/ublBuildAction';
-import type { Context } from '../../src/state';
 import type { AnafCompanyData } from 'anaf-ts-sdk';
 
 function freshPaths() {
@@ -17,13 +16,6 @@ function freshPaths() {
     cacheHome: path.join(dir, 'cache'),
   });
 }
-
-const sampleCtx = (): Context => ({
-  name: 'acme-prod',
-  companyCui: 'RO12345678',
-  environment: 'prod',
-  auth: { clientId: 'cid', redirectUri: 'https://localhost/cb' },
-});
 
 const fakeSupplier: AnafCompanyData = {
   vatCode: '12345678',
@@ -75,24 +67,25 @@ class StubLookupService {
 
 function harness() {
   const paths = freshPaths();
-  const contextService = new ContextService({ paths });
+  const companyService = new CompanyService({ paths });
+  const configStore = new ConfigStore({ paths });
   const lookup = new StubLookupService();
   lookup.responses.set('12345678', fakeSupplier);
   lookup.responses.set('87654321', fakeCustomer);
   const service = new UblService({
-    contextService,
+    companyService,
+    configStore,
     lookupService: lookup as never,
   });
-  return { paths, contextService, lookup, service };
+  return { paths, companyService, configStore, lookup, service };
 }
 
 describe('UblService.buildFromAction', () => {
-  it('hydrates supplier from context CUI and customer from action CUI', async () => {
+  it('hydrates supplier from action context CUI and customer from action CUI', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
+    // action.context is now the CUI string directly
     const action = normalizeUblBuildAction({
-      context: 'acme-prod',
+      context: 'RO12345678',
       invoiceNumber: 'FCT-1',
       issueDate: '2026-04-11',
       customerCui: 'RO87654321',
@@ -113,10 +106,8 @@ describe('UblService.buildFromAction', () => {
 
   it('applies customer overrides on top of the hydrated party', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
     const action = normalizeUblBuildAction({
-      context: 'acme-prod',
+      context: 'RO12345678',
       invoiceNumber: 'FCT-2',
       issueDate: '2026-04-11',
       customerCui: 'RO87654321',
@@ -137,10 +128,8 @@ describe('UblService.buildFromAction', () => {
 
   it('applies supplier overrides on top of the hydrated party', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
     const action = normalizeUblBuildAction({
-      context: 'acme-prod',
+      context: 'RO12345678',
       invoiceNumber: 'FCT-3',
       issueDate: '2026-04-11',
       customerCui: 'RO87654321',
@@ -158,10 +147,8 @@ describe('UblService.buildFromAction', () => {
 
   it('defaults currency to RON when neither top-level nor override is set', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
     const action = normalizeUblBuildAction({
-      context: 'acme-prod',
+      context: 'RO12345678',
       invoiceNumber: 'FCT-4',
       issueDate: '2026-04-11',
       customerCui: 'RO87654321',
@@ -173,10 +160,8 @@ describe('UblService.buildFromAction', () => {
 
   it('honors explicit currency and paymentIban', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
     const action = normalizeUblBuildAction({
-      context: 'acme-prod',
+      context: 'RO12345678',
       invoiceNumber: 'FCT-5',
       issueDate: '2026-04-11',
       customerCui: 'RO87654321',
@@ -191,10 +176,8 @@ describe('UblService.buildFromAction', () => {
 
   it('maps invoice lines with unitCode', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
     const action = normalizeUblBuildAction({
-      context: 'acme-prod',
+      context: 'RO12345678',
       invoiceNumber: 'FCT-6',
       issueDate: '2026-04-11',
       customerCui: 'RO87654321',
@@ -213,10 +196,8 @@ describe('UblService.buildFromAction', () => {
 
   it('propagates LOOKUP_NOT_FOUND from the lookup service', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
     const action = normalizeUblBuildAction({
-      context: 'acme-prod',
+      context: 'RO12345678',
       invoiceNumber: 'FCT-7',
       issueDate: '2026-04-11',
       customerCui: 'RO99999999', // not in stub
@@ -227,9 +208,8 @@ describe('UblService.buildFromAction', () => {
 
   it('wraps UblBuilder failures as UBL_BUILD_FAILED', async () => {
     const paths = freshPaths();
-    const contextService = new ContextService({ paths });
-    contextService.add(sampleCtx());
-    contextService.setCurrent('acme-prod');
+    const companyService = new CompanyService({ paths });
+    const configStore = new ConfigStore({ paths });
     const lookup = new StubLookupService();
     lookup.responses.set('12345678', fakeSupplier);
     lookup.responses.set('87654321', fakeCustomer);
@@ -239,12 +219,13 @@ describe('UblService.buildFromAction', () => {
       },
     };
     const service = new UblService({
-      contextService,
+      companyService,
+      configStore,
       lookupService: lookup as never,
       builder: brokenBuilder as never,
     });
     const action = normalizeUblBuildAction({
-      context: 'acme-prod',
+      context: 'RO12345678',
       invoiceNumber: 'FCT-8',
       issueDate: '2026-04-11',
       customerCui: 'RO87654321',
@@ -259,5 +240,87 @@ describe('UblService.buildFromAction', () => {
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).code).toBe('UBL_BUILD_FAILED');
     expect((err as CliError).category).toBe('generic');
+  });
+
+  it('passes taxCurrencyTaxAmount through to the invoice', async () => {
+    const paths = freshPaths();
+    const configStore = new ConfigStore(paths);
+    const companyService = {} as any;
+    const lookup = new StubLookupService();
+    lookup.responses.set('12345678', fakeSupplier);
+    lookup.responses.set('87654321', fakeCustomer);
+    const service = new UblService({ companyService, configStore, lookupService: lookup as never });
+    const action = normalizeUblBuildAction({
+      context: 'RO12345678',
+      invoiceNumber: 'FCT-EUR',
+      issueDate: '2026-04-13',
+      customerCui: 'RO87654321',
+      lines: ['Serviciu|1|500|21'],
+      currency: 'EUR',
+      taxCurrencyTaxAmount: 530.25,
+    });
+    const result = await service.buildFromAction(action);
+    expect(result.invoice.currency).toBe('EUR');
+    expect(result.invoice.taxCurrencyTaxAmount).toBe(530.25);
+    expect(result.xml).toContain('<cbc:TaxCurrencyCode>RON</cbc:TaxCurrencyCode>');
+    expect(result.xml).toContain('<cbc:TaxAmount currencyID="RON">530.25</cbc:TaxAmount>');
+  });
+});
+
+describe('companyToParty county extraction', () => {
+  // We test the county extraction indirectly via UblService — the function is private but
+  // its output is observable in the resulting invoice's supplier.address.county field.
+  function makeService(supplierAddress: string) {
+    const paths = freshPaths();
+    const configStore = new ConfigStore(paths);
+    const supplier: AnafCompanyData = { ...fakeSupplier, address: supplierAddress };
+    const lookup = new StubLookupService();
+    lookup.responses.set('12345678', supplier);
+    lookup.responses.set('87654321', fakeCustomer);
+    return new UblService({ companyService: {} as any, configStore, lookupService: lookup as never });
+  }
+
+  async function buildAndGetSupplierCounty(address: string): Promise<string | undefined> {
+    const service = makeService(address);
+    const paths = freshPaths();
+    const configStore = new ConfigStore(paths);
+    const lookup = new StubLookupService();
+    const supplier: AnafCompanyData = { ...fakeSupplier, address };
+    lookup.responses.set('12345678', supplier);
+    lookup.responses.set('87654321', fakeCustomer);
+    const svc = new UblService({ companyService: {} as any, configStore, lookupService: lookup as never });
+    const action = normalizeUblBuildAction({
+      context: 'RO12345678',
+      invoiceNumber: 'FCT-CTY',
+      issueDate: '2026-04-13',
+      customerCui: 'RO87654321',
+      lines: ['x|1|100|21'],
+    });
+    const result = await svc.buildFromAction(action);
+    return result.invoice.supplier.address.county;
+  }
+
+  it('extracts Cluj county from JUD. CLUJ prefix', async () => {
+    expect(await buildAndGetSupplierCounty('JUD. CLUJ, MUN. CLUJ-NAPOCA, STR. MIHAI EMINESCU, NR. 1')).toBe('RO-CJ');
+  });
+
+  it('extracts Bucharest from MUN. BUCURESTI prefix', async () => {
+    expect(await buildAndGetSupplierCounty('MUN. BUCURESTI, SECTOR 1, STR. VICTORIEI, NR. 10')).toBe('RO-B');
+  });
+
+  it('extracts Bucharest from SECTOR prefix', async () => {
+    expect(await buildAndGetSupplierCounty('SECTOR 3, STR. UNIRII, NR. 5')).toBe('RO-B');
+  });
+
+  it('handles diacritics in county name (Bistrita-Nasaud)', async () => {
+    expect(await buildAndGetSupplierCounty('JUD. BISTRIȚA-NĂSĂUD, BISTRITA, STR. X')).toBe('RO-BN');
+  });
+
+  it('returns undefined for unrecognized address format', async () => {
+    expect(await buildAndGetSupplierCounty('Strada Necunoscuta nr 1')).toBeUndefined();
+  });
+
+  it('returns undefined for empty address', async () => {
+    expect(await buildAndGetSupplierCounty('')).toBeUndefined();
   });
 });

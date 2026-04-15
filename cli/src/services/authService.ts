@@ -1,14 +1,12 @@
 import { AnafAuthenticator } from 'anaf-ts-sdk';
 import { CliError } from '../output/errors';
-import type { Context, ContextService, TokenRecord, TokenStore } from '../state';
+import type { Credential, CredentialService, CompanyService, ConfigStore, TokenRecord, TokenStore, Company, Environment } from '../state';
 
 export interface AuthServiceOptions {
-  contextService: ContextService;
+  credentialService: CredentialService;
+  companyService: CompanyService;
+  configStore: ConfigStore;
   tokenStore: TokenStore;
-  /**
-   * Factory for the SDK authenticator. Defaults to constructing a real
-   * {@link AnafAuthenticator}. Tests inject a stub.
-   */
   authenticatorFactory?: (args: { clientId: string; clientSecret: string; redirectUri: string }) => AnafAuthenticator;
   now?: () => Date;
 }
@@ -20,25 +18,24 @@ export interface SecretSource {
 }
 
 export interface AuthorizationUrlResult {
-  context: Context;
+  credential: Credential;
   url: string;
 }
 
 export interface ExchangeCodeArgs {
-  contextName?: string;
   code: string;
   secret: SecretSource;
 }
 
 export interface RefreshArgs {
-  contextName?: string;
   secret: SecretSource;
 }
 
 export type TokenStatus = 'fresh' | 'expired' | 'missing';
 
 export interface WhoamiResult {
-  context: Context;
+  company?: Company;
+  env: Environment;
   tokenStatus: TokenStatus;
   expiresAt?: string;
   obtainedAt?: string;
@@ -50,75 +47,71 @@ interface TokenResponseLike {
   expires_in: number;
 }
 
+export const TOKEN_KEY = '_default';
+
 /**
  * Service that wraps the SDK's {@link AnafAuthenticator} behind a CLI-friendly
  * contract and persists rotated refresh tokens through {@link TokenStore}.
  *
- * The client secret is NEVER persisted to disk: it is resolved on each call
- * from a {@link SecretSource} (flag → stdin → env) and then discarded.
+ * Single credential, single token. Token key is always `'_default'`.
  */
 export class AuthService {
-  private readonly contextService: ContextService;
+  private readonly credentialService: CredentialService;
+  private readonly companyService: CompanyService;
+  private readonly configStore: ConfigStore;
   private readonly tokenStore: TokenStore;
   private readonly authenticatorFactory: NonNullable<AuthServiceOptions['authenticatorFactory']>;
   private readonly now: () => Date;
 
   constructor(opts: AuthServiceOptions) {
-    this.contextService = opts.contextService;
+    this.credentialService = opts.credentialService;
+    this.companyService = opts.companyService;
+    this.configStore = opts.configStore;
     this.tokenStore = opts.tokenStore;
     this.authenticatorFactory = opts.authenticatorFactory ?? ((args) => new AnafAuthenticator(args));
     this.now = opts.now ?? ((): Date => new Date());
   }
 
   /**
-   * Resolve the client secret from a {@link SecretSource}. Order of preference:
-   * `flag` → `stdin` → `env`. Throws `CliError(CLIENT_SECRET_MISSING)` if all
-   * three are absent or empty.
-   *
-   * Exposed as a static so downstream services (e.g. EfacturaService in P2.4)
-   * can share the resolution logic without depending on an instance.
+   * Resolve the client secret from a {@link SecretSource}, with an optional
+   * fallback from the credential file's `clientSecret` field.
    */
-  static resolveSecret(source: SecretSource): string {
-    const candidates = [source.flag, source.stdin, source.env];
+  static resolveSecret(source: SecretSource, credentialSecret?: string): string {
+    const candidates = [source.flag, source.stdin, source.env, credentialSecret];
     for (const c of candidates) {
       if (typeof c === 'string' && c.length > 0) return c;
     }
     throw new CliError({
       code: 'CLIENT_SECRET_MISSING',
-      message: 'OAuth client secret is required. Provide it via --client-secret-stdin or set ANAF_CLIENT_SECRET.',
+      message: 'OAuth client secret is required. Store it in the credential, set ANAF_CLIENT_SECRET, or pass --client-secret-stdin.',
       category: 'auth',
     });
   }
 
   /**
-   * Build the ANAF OAuth authorization URL for the active (or explicitly named)
-   * context. Does NOT require a client secret: the SDK only needs `clientId`
-   * and `redirectUri` to construct the URL, but its constructor validates that
-   * `clientSecret` is non-empty, so we pass a fixed placeholder. The placeholder
-   * NEVER leaves the process and is NEVER persisted.
+   * Build the ANAF OAuth authorization URL using the single credential.
    */
-  buildAuthorizationUrl(contextName?: string, scope?: string): AuthorizationUrlResult {
-    const context = this.contextService.resolve(contextName);
+  buildAuthorizationUrl(scope?: string): AuthorizationUrlResult {
+    const credential = this.credentialService.get();
     const auth = this.authenticatorFactory({
-      clientId: context.auth.clientId,
+      clientId: credential.clientId,
       clientSecret: 'unused-for-url',
-      redirectUri: context.auth.redirectUri,
+      redirectUri: credential.redirectUri,
     });
-    return { context, url: auth.getAuthorizationUrl(scope) };
+    return { credential, url: auth.getAuthorizationUrl(scope) };
   }
 
   /**
-   * Exchange a pasted authorization code for a token pair, persist the result,
-   * and return the persisted {@link TokenRecord}. Wraps SDK failures as
-   * `CliError(AUTH_FAILED)`.
+   * Exchange an authorization code for a token pair, persist the result
+   * under the `'_default'` key, and return the persisted {@link TokenRecord}.
    */
   async exchangeCode(args: ExchangeCodeArgs): Promise<TokenRecord> {
-    const context = this.contextService.resolve(args.contextName);
-    const clientSecret = AuthService.resolveSecret(args.secret);
+    const credential = this.credentialService.get();
+    const clientSecret = AuthService.resolveSecret(args.secret, credential.clientSecret);
     const auth = this.authenticatorFactory({
-      clientId: context.auth.clientId,
+      clientId: credential.clientId,
       clientSecret,
-      redirectUri: context.auth.redirectUri,
+      redirectUri: credential.redirectUri,
     });
     let response: TokenResponseLike;
     try {
@@ -128,35 +121,31 @@ export class AuthService {
         code: 'AUTH_FAILED',
         message: `Failed to exchange code: ${(cause as Error).message}`,
         category: 'auth',
-        details: { context: context.name },
       });
     }
     const record = this.toRecord(response);
-    this.tokenStore.write(context.name, record);
+    this.tokenStore.write(TOKEN_KEY, record);
     return record;
   }
 
   /**
-   * Refresh the persisted token pair using its stored refresh token. Throws
-   * `CliError(NO_REFRESH_TOKEN)` if no token is persisted, or
-   * `CliError(AUTH_FAILED)` if the SDK call rejects.
+   * Refresh the persisted token pair using its stored refresh token.
    */
   async refresh(args: RefreshArgs): Promise<TokenRecord> {
-    const context = this.contextService.resolve(args.contextName);
-    const existing = this.tokenStore.read(context.name);
+    const credential = this.credentialService.get();
+    const existing = this.tokenStore.read(TOKEN_KEY);
     if (!existing?.refreshToken) {
       throw new CliError({
         code: 'NO_REFRESH_TOKEN',
-        message: `No refresh token persisted for context "${context.name}". Run \`anaf-cli auth login\` first.`,
+        message: 'No refresh token persisted. Run `anaf-cli auth login <CUI>` first.',
         category: 'auth',
-        details: { context: context.name },
       });
     }
-    const clientSecret = AuthService.resolveSecret(args.secret);
+    const clientSecret = AuthService.resolveSecret(args.secret, credential.clientSecret);
     const auth = this.authenticatorFactory({
-      clientId: context.auth.clientId,
+      clientId: credential.clientId,
       clientSecret,
-      redirectUri: context.auth.redirectUri,
+      redirectUri: credential.redirectUri,
     });
     let response: TokenResponseLike;
     try {
@@ -166,29 +155,37 @@ export class AuthService {
         code: 'AUTH_FAILED',
         message: `Failed to refresh token: ${(cause as Error).message}`,
         category: 'auth',
-        details: { context: context.name },
       });
     }
     const record = this.toRecord(response);
-    this.tokenStore.write(context.name, record);
+    this.tokenStore.write(TOKEN_KEY, record);
     return record;
   }
 
   /**
-   * Report the freshness of the persisted token for the resolved context.
-   * A record without `expiresAt` (e.g. refresh-token-only) is reported as
-   * `missing` — the user must run `auth refresh` to obtain a usable access token.
+   * Report the active company, environment, and token freshness.
    */
-  whoami(contextName?: string): WhoamiResult {
-    const context = this.contextService.resolve(contextName);
-    const token = this.tokenStore.read(context.name);
+  whoami(): WhoamiResult {
+    const env = this.configStore.getEnv();
+    const activeCui = this.configStore.getActiveCui();
+    let company: Company | undefined;
+    if (activeCui) {
+      try {
+        company = this.companyService.get(activeCui);
+      } catch {
+        // Company file missing — still report the CUI
+        company = { cui: activeCui, name: '(unknown)' };
+      }
+    }
+    const token = this.tokenStore.read(TOKEN_KEY);
     if (!token?.expiresAt) {
-      return { context, tokenStatus: 'missing' };
+      return { company, env, tokenStatus: 'missing' };
     }
     const now = this.now().getTime();
     const exp = Date.parse(token.expiresAt);
     return {
-      context,
+      company,
+      env,
       tokenStatus: now < exp ? 'fresh' : 'expired',
       expiresAt: token.expiresAt,
       obtainedAt: token.obtainedAt,
@@ -196,12 +193,17 @@ export class AuthService {
   }
 
   /**
-   * Remove the persisted token file for the resolved context. Idempotent:
-   * calling it when no token exists is a no-op (does not throw).
+   * Return the persisted token record, or `null` if none exists.
    */
-  logout(contextName?: string): void {
-    const context = this.contextService.resolve(contextName);
-    this.tokenStore.remove(context.name);
+  getToken(): TokenRecord | null {
+    return this.tokenStore.read(TOKEN_KEY) ?? null;
+  }
+
+  /**
+   * Remove the persisted token file.
+   */
+  logout(): void {
+    this.tokenStore.remove(TOKEN_KEY);
   }
 
   private toRecord(response: TokenResponseLike): TokenRecord {

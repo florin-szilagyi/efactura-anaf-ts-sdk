@@ -5,9 +5,14 @@ import {
   PaginatedMessagesParams,
   ListMessagesResponse,
   PaginatedListMessagesResponse,
+  RawListMessagesResponse,
+  RawPaginatedListMessagesResponse,
+  RawMessageDetails,
+  MessageDetails,
   UploadResponse,
   StatusResponse,
 } from './types';
+import { parseDetalii } from './utils/messageParser';
 import { AnafValidationError, AnafApiError } from './errors';
 import {
   getBasePath,
@@ -37,6 +42,11 @@ import { handleApiError } from './utils/errorHandler';
 import { tryCatch } from './tryCatch';
 import { TokenManager } from './TokenManager';
 
+function transformRawMessage(raw: RawMessageDetails): MessageDetails {
+  const { id_solicitare: _, cif: __, ...rest } = raw;
+  return { ...rest, ...parseDetalii(raw.detalii) };
+}
+
 /**
  * Client for core e-Factura invoice operations: upload, status, download, and message listing.
  *
@@ -44,7 +54,7 @@ import { TokenManager } from './TokenManager';
  *
  * @example
  * ```typescript
- * import { EfacturaClient, TokenManager, AnafAuthenticator } from 'efactura-ts-sdk';
+ * import { EfacturaClient, TokenManager, AnafAuthenticator } from 'anaf-ts-sdk';
  *
  * const authenticator = new AnafAuthenticator({ clientId, clientSecret, redirectUri });
  * const tokenManager = new TokenManager(authenticator, refreshToken);
@@ -210,13 +220,16 @@ export class EfacturaClient {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
-      const data = parseJsonResponse<PaginatedListMessagesResponse>(response.data);
+      const raw = parseJsonResponse<RawPaginatedListMessagesResponse>(response.data);
 
-      if (isErrorResponse(data)) {
-        throw new AnafApiError(extractErrorMessage(data) || 'Error retrieving paginated messages');
+      if (isErrorResponse(raw)) {
+        throw new AnafApiError(extractErrorMessage(raw) || 'Error retrieving paginated messages');
       }
 
-      return data;
+      return {
+        ...raw,
+        mesaje: raw.mesaje ? raw.mesaje.map(transformRawMessage) : undefined,
+      } as PaginatedListMessagesResponse;
     });
 
     if (error) {
@@ -238,13 +251,16 @@ export class EfacturaClient {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
-      const data = parseJsonResponse<ListMessagesResponse>(response.data);
+      const raw = parseJsonResponse<RawListMessagesResponse>(response.data);
 
-      if (isErrorResponse(data)) {
-        throw new AnafApiError(extractErrorMessage(data) || 'Error retrieving messages');
+      if (isErrorResponse(raw)) {
+        throw new AnafApiError(extractErrorMessage(raw) || 'Error retrieving messages');
       }
 
-      return data;
+      return {
+        ...raw,
+        mesaje: raw.mesaje ? raw.mesaje.map(transformRawMessage) : undefined,
+      } as ListMessagesResponse;
     });
 
     if (error) {

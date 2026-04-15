@@ -20,7 +20,11 @@
     "node": ">=20"
   },
   "bin": {
-    "anaf-cli": "dist/bin/anaf-cli.js"
+    "anaf-cli": "dist/bin/anaf-cli.cjs"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "files": ["dist/**/*", "README.md", "LICENSE"],
   "scripts": {
@@ -36,10 +40,11 @@
     "test": "jest",
     "test:unit": "jest --testPathIgnorePatterns=smoke",
     "test:smoke": "jest --testPathPattern=smoke --runInBand",
-    "verify": "pnpm run lint && pnpm run build && pnpm run test"
+    "verify": "pnpm run lint && pnpm run build && pnpm run test",
+    "gen-docs": "tsx scripts/gen-docs.ts",
+    "gen-docs:check": "tsx scripts/gen-docs.ts --out COMMANDS.md.tmp && diff COMMANDS.md COMMANDS.md.tmp && rm COMMANDS.md.tmp || (rm -f COMMANDS.md.tmp && echo 'COMMANDS.md is stale — run: pnpm gen-docs' && exit 1)"
   },
   "dependencies": {
-    "anaf-ts-sdk": "workspace:*",
     "commander": "^12.1.0",
     "yaml": "^2.5.0",
     "zod": "^3.23.8"
@@ -47,6 +52,7 @@
   "devDependencies": {
     "@types/jest": "^29.5.11",
     "@types/node": "^20.10.5",
+    "anaf-ts-sdk": "workspace:*",
     "esbuild": "^0.21.5",
     "jest": "^29.7.0",
     "rimraf": "^6.0.1",

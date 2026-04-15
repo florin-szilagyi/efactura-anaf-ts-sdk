@@ -38,14 +38,16 @@ describe('getXdgPaths', () => {
     expect(p.appDataDir).toBe('/d/anaf-cli');
     expect(p.appCacheDir).toBe('/x/anaf-cli');
     expect(p.configFile).toBe('/c/anaf-cli/config.yaml');
-    expect(p.contextsDir).toBe('/c/anaf-cli/contexts');
+    expect(p.credentialFile).toBe('/c/anaf-cli/credential.yaml');
+    expect(p.companiesDir).toBe('/c/anaf-cli/companies');
     expect(p.tokensDir).toBe('/d/anaf-cli/tokens');
     expect(p.companyCacheDir).toBe('/x/anaf-cli/company-cache');
   });
 
-  it('contextFile/tokenFile derive from name', () => {
+  it('companyFile/tokenFile/cacheFile derive from argument', () => {
     const p = getXdgPaths({ configHome: '/c', dataHome: '/d', cacheHome: '/x' });
-    expect(p.contextFile('acme-prod')).toBe('/c/anaf-cli/contexts/acme-prod.yaml');
-    expect(p.tokenFile('acme-prod')).toBe('/d/anaf-cli/tokens/acme-prod.json');
+    expect(p.companyFile('12345678')).toBe('/c/anaf-cli/companies/12345678.yaml');
+    expect(p.tokenFile('_default')).toBe('/d/anaf-cli/tokens/_default.json');
+    expect(p.cacheFile('12345678')).toBe('/x/anaf-cli/company-cache/12345678.json');
   });
 });

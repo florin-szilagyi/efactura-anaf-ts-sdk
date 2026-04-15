@@ -12,14 +12,20 @@ export interface RunCmdOpts {
 }
 
 /**
- * `anaf-cli run -f <path> [--dry-run]` handler.
- *
- * Parses a YAML/JSON manifest, normalizes it into an action via the action
- * normalizers from P2.1, then dispatches on `action.kind` through the
- * existing `ublService` / `efacturaService`. `--dry-run` stops after
- * normalization and emits the action as JSON (both text + json output
- * modes — agents consume the raw action).
+ * Resolve the active company CUI from the config store.
  */
+function resolveActiveCui(deps: CommandDeps): string {
+  const activeCui = deps.services.configStore.getActiveCui();
+  if (!activeCui) {
+    throw new CliError({
+      code: 'NO_ACTIVE_COMPANY',
+      message: 'No active company. Run `anaf-cli auth login <CUI>` or `anaf-cli auth use <CUI>` first.',
+      category: 'local_state',
+    });
+  }
+  return activeCui;
+}
+
 export async function runCommand(deps: CommandDeps, opts: RunCmdOpts): Promise<void> {
   if (!opts.file) {
     throw new CliError({
@@ -32,9 +38,6 @@ export async function runCommand(deps: CommandDeps, opts: RunCmdOpts): Promise<v
   const action = normalizeManifest(doc);
 
   if (opts.dryRun) {
-    // Dry-run path goes through renderSuccess so the JSON envelope stays
-    // correct in --json mode and the text path prints pretty-printed JSON
-    // (which is the useful artifact for agents to eyeball).
     renderSuccess(deps.output, action, (a) => JSON.stringify(a, null, 2));
     return;
   }
@@ -48,18 +51,15 @@ export async function runCommand(deps: CommandDeps, opts: RunCmdOpts): Promise<v
 }
 
 async function executeUblBuild(deps: CommandDeps, action: UblBuildAction): Promise<void> {
-  // Re-resolve the context so that a manifest referring to "(current)" or
-  // an abbreviated alias still maps onto a real context file.
-  const resolvedContext = deps.services.contextService.resolve(action.context).name;
-  const resolvedAction: UblBuildAction = { ...action, context: resolvedContext };
+  // Use the active company CUI as the context for the build
+  const activeCui = resolveActiveCui(deps);
+  const resolvedAction: UblBuildAction = { ...action, context: activeCui };
   const result = await deps.services.ublService.buildFromAction(resolvedAction);
 
   if (action.output.mode === 'file' && action.output.path) {
     fs.writeFileSync(action.output.path, result.xml, 'utf8');
     deps.output.streams.stderr.write(`wrote ${action.output.path}\n`);
-    // In JSON mode we still want a structured envelope so the caller can
-    // confirm the write programmatically.
-    if (deps.output.format === 'json') {
+    if (deps.output.format !== 'text') {
       renderSuccess(deps.output, {
         invoiceNumber: action.invoice.invoiceNumber,
         xmlPath: action.output.path,
@@ -69,7 +69,7 @@ async function executeUblBuild(deps: CommandDeps, action: UblBuildAction): Promi
     return;
   }
 
-  if (deps.output.format === 'json') {
+  if (deps.output.format !== 'text') {
     renderSuccess(deps.output, {
       invoiceNumber: action.invoice.invoiceNumber,
       xmlLength: result.xml.length,
@@ -79,7 +79,6 @@ async function executeUblBuild(deps: CommandDeps, action: UblBuildAction): Promi
     return;
   }
 
-  // Raw XML to stdout — matches the imperative `ubl build` command.
   deps.output.streams.stdout.write(result.xml);
   if (!result.xml.endsWith('\n')) {
     deps.output.streams.stdout.write('\n');
@@ -100,18 +99,15 @@ async function executeEfacturaUpload(deps: CommandDeps, action: EfacturaUploadAc
       });
     }
   } else if (action.source.type === 'xmlStdin') {
-    // Manifests are meant to be deterministic — reading stdin in a scripted
-    // pipeline is a footgun we deliberately refuse. If the user really
-    // wants stdin, they can use the imperative `efactura upload --stdin`.
     throw new CliError({
       code: 'BAD_USAGE',
       message: 'run: EFacturaUpload with xmlStdin source is not supported — use xmlFile or ublBuild',
       category: 'user_input',
     });
   } else {
+    const activeCui = resolveActiveCui(deps);
     const subAction = action.source.build;
-    const resolvedContext = deps.services.contextService.resolve(subAction.context).name;
-    const resolvedSub: UblBuildAction = { ...subAction, context: resolvedContext };
+    const resolvedSub: UblBuildAction = { ...subAction, context: activeCui };
     const result = await deps.services.ublService.buildFromAction(resolvedSub);
     xml = result.xml;
   }
@@ -126,7 +122,6 @@ async function executeEfacturaUpload(deps: CommandDeps, action: EfacturaUploadAc
   }
 
   const response = await deps.services.efacturaService.upload({
-    contextName: action.context,
     xml,
     clientSecret,
     isB2C: action.upload.isB2C ?? false,

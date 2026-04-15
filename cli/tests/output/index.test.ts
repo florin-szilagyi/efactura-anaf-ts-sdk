@@ -1,4 +1,5 @@
 import { Writable } from 'node:stream';
+import { parse as parseYaml } from 'yaml';
 import { renderSuccess, renderError, makeOutputContext, CliError } from '../../src/output';
 
 class Cap extends Writable {
@@ -25,6 +26,14 @@ describe('output barrel renderSuccess dispatch', () => {
     renderSuccess(ctx, { name: 'acme' });
     expect(JSON.parse(out.buf)).toEqual({ success: true, data: { name: 'acme' } });
   });
+
+  it('routes to YAML in yaml mode', () => {
+    const out = new Cap();
+    const err = new Cap();
+    const ctx = makeOutputContext({ format: 'yaml', streams: { stdout: out, stderr: err } });
+    renderSuccess(ctx, { name: 'acme' });
+    expect(parseYaml(out.buf)).toEqual({ name: 'acme' });
+  });
 });
 
 describe('output barrel renderError dispatch', () => {
@@ -42,5 +51,13 @@ describe('output barrel renderError dispatch', () => {
     const ctx = makeOutputContext({ format: 'json', streams: { stdout: out, stderr: err } });
     renderError(ctx, new CliError({ code: 'X', message: 'y', category: 'generic' }));
     expect(JSON.parse(err.buf)).toEqual({ success: false, error: { code: 'X', message: 'y' } });
+  });
+
+  it('yaml mode prints the error envelope to stderr as YAML', () => {
+    const out = new Cap();
+    const err = new Cap();
+    const ctx = makeOutputContext({ format: 'yaml', streams: { stdout: out, stderr: err } });
+    renderError(ctx, new CliError({ code: 'X', message: 'y', category: 'generic' }));
+    expect(parseYaml(err.buf)).toEqual({ success: false, error: { code: 'X', message: 'y' } });
   });
 });

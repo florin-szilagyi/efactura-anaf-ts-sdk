@@ -7,41 +7,46 @@ import {
 } from '../../src/commands/flags';
 
 describe('GLOBAL_FLAG_NAMES', () => {
-  it('lists json, context, no-color', () => {
-    expect(GLOBAL_FLAG_NAMES).toEqual(['json', 'context', 'no-color']);
+  it('lists format, verbose, no-color', () => {
+    expect(GLOBAL_FLAG_NAMES).toEqual(['format', 'verbose', 'no-color']);
   });
 });
 
 describe('attachGlobalFlags', () => {
-  it('adds --json, --context <name>, and --no-color to a Command', () => {
+  it('adds --format, --verbose, and --no-color to a Command', () => {
     const program = new Command();
     attachGlobalFlags(program);
     const opts = program.options.map((o) => o.long);
-    expect(opts).toEqual(expect.arrayContaining(['--json', '--context', '--no-color']));
+    expect(opts).toEqual(expect.arrayContaining(['--format', '--verbose', '--no-color']));
   });
 });
 
 describe('resolveOutputFormatFromOpts', () => {
-  it('returns json when --json is set', () => {
-    expect(resolveOutputFormatFromOpts({ json: true })).toBe('json');
+  it('returns json when --format json', () => {
+    expect(resolveOutputFormatFromOpts({ format: 'json' })).toBe('json');
   });
-  it('returns text when --json is unset or false', () => {
+  it('returns yaml when --format yaml', () => {
+    expect(resolveOutputFormatFromOpts({ format: 'yaml' })).toBe('yaml');
+  });
+  it('returns text by default', () => {
     expect(resolveOutputFormatFromOpts({})).toBe('text');
-    expect(resolveOutputFormatFromOpts({ json: false })).toBe('text');
+  });
+  it('throws on invalid format', () => {
+    expect(() => resolveOutputFormatFromOpts({ format: 'csv' })).toThrow('invalid --format');
   });
 });
 
 describe('extractGlobalOpts', () => {
-  it('reads json/context/color from a parsed program', () => {
+  it('reads format/verbose/color from a parsed program', () => {
     const program = new Command();
     attachGlobalFlags(program);
     program.exitOverride();
     program.action(() => {
       /* no-op */
     });
-    program.parse(['node', 'cli', '--json', '--context', 'acme-prod']);
+    program.parse(['node', 'cli', '--format', 'json', '--verbose']);
     const g = extractGlobalOpts(program);
-    expect(g).toEqual({ json: true, context: 'acme-prod', color: true });
+    expect(g).toEqual({ format: 'json', verbose: true, color: true });
   });
 
   it('color flips false when --no-color is given', () => {

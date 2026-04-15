@@ -56,6 +56,8 @@ jobs:
         run: pnpm --filter anaf-ts-sdk run build
       - name: Verify CLI
         run: pnpm --filter anaf-cli run verify
+      - name: Check COMMANDS.md is up to date
+        run: pnpm --filter anaf-cli run gen-docs:check
       - name: Read CLI version
         id: read_version
         run: |
@@ -63,7 +65,8 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "CLI version: $VERSION"
       - name: Pack npm tarball
-        run: pnpm --filter anaf-cli pack --pack-destination ./artifacts
+        working-directory: cli
+        run: pnpm pack --pack-destination ./artifacts
       - uses: actions/upload-artifact@v4
         with:
           name: npm-tarball

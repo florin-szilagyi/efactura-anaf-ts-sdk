@@ -967,7 +967,7 @@ describe('UblBuilder Tests', () => {
       expect(invoice).toBeDefined();
     });
 
-    test('should handle EUR currency correctly', () => {
+    test('should emit TaxCurrencyCode RON when currency is not RON (BR-RO-030)', () => {
       const invoiceData: InvoiceInput = {
         ...mockTestData.invoiceData,
         currency: 'EUR',
@@ -977,7 +977,35 @@ describe('UblBuilder Tests', () => {
 
       expect(xml).toContain('<cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>');
       expect(xml).toContain('currencyID="EUR"');
+      // BR-RO-030: TaxCurrencyCode must be RON when invoice currency is not RON
+      expect(xml).toContain('<cbc:TaxCurrencyCode>RON</cbc:TaxCurrencyCode>');
+      // No second TaxTotal in RON because taxCurrencyTaxAmount is not provided
       expect(xml).not.toContain('currencyID="RON"');
+    });
+
+    test('should emit second TaxTotal in RON when taxCurrencyTaxAmount is provided (BR-53)', () => {
+      const invoiceData: InvoiceInput = {
+        ...mockTestData.invoiceData,
+        currency: 'EUR',
+        taxCurrencyTaxAmount: 530.25,
+      };
+
+      const xml = builder.generateInvoiceXml(invoiceData);
+
+      expect(xml).toContain('<cbc:TaxCurrencyCode>RON</cbc:TaxCurrencyCode>');
+      // BT-111: second TaxTotal with RON currencyID
+      expect(xml).toContain('<cbc:TaxAmount currencyID="RON">530.25</cbc:TaxAmount>');
+    });
+
+    test('should not emit TaxCurrencyCode when currency is RON', () => {
+      const invoiceData: InvoiceInput = {
+        ...mockTestData.invoiceData,
+        currency: 'RON',
+      };
+
+      const xml = builder.generateInvoiceXml(invoiceData);
+
+      expect(xml).not.toContain('TaxCurrencyCode');
     });
 
     test('should default dueDate to issueDate when not provided', () => {

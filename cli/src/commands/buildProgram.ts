@@ -1,35 +1,21 @@
 import { Command } from 'commander';
 import { CLI_NAME, CLI_VERSION } from '../version';
 import type { OutputContext } from '../output';
-import type { ContextService, TokenStore } from '../state';
+import type { CompanyService, CredentialService, ConfigStore, TokenStore, XdgPaths } from '../state';
 import type { LookupService, AuthService, EfacturaService, UblService } from '../services';
 import { attachGlobalFlags } from './flags';
 import { registerAuth } from './groups/auth';
-import { registerCtx } from './groups/ctx';
+import { registerCred } from './groups/cred';
 import { registerEfactura } from './groups/efactura';
 import { registerLookup } from './groups/lookup';
 import { registerUbl } from './groups/ubl';
 import { registerRun } from './groups/run';
 import { registerSchema } from './groups/schema';
 
-/**
- * Registry of REQUIRED service instances passed into the commander program.
- *
- * This shape is the FROZEN service-registry merge pattern: `runProgram` is
- * responsible for filling every field with a default-constructed service when
- * callers do not inject one. Every handler can therefore access
- * `deps.services.<field>` without an existence check.
- *
- * Downstream workstreams MUST append new fields here (and a matching default
- * line in `runProgram.ts`) without removing or reordering existing ones:
- *   P1.5 → tokenStore: TokenStore; authService: AuthService;
- *   P1.7 → lookupService: LookupService;
- *   P2.2 → ublService: UblService;
- *   P2.4 → efacturaService: EfacturaService;
- *   P3.1 → manifestService: ManifestService;
- */
 export interface ServiceRegistry {
-  contextService: ContextService;
+  companyService: CompanyService;
+  credentialService: CredentialService;
+  configStore: ConfigStore;
   lookupService: LookupService;
   tokenStore: TokenStore;
   authService: AuthService;
@@ -40,6 +26,7 @@ export interface ServiceRegistry {
 export interface CommandDeps {
   output: OutputContext;
   services: ServiceRegistry;
+  paths: XdgPaths;
 }
 
 export function buildProgram(deps: CommandDeps): Command {
@@ -52,12 +39,53 @@ export function buildProgram(deps: CommandDeps): Command {
   attachGlobalFlags(program);
 
   registerAuth(program, deps);
-  registerCtx(program, deps);
+  registerCred(program, deps);
   registerEfactura(program, deps);
   registerLookup(program, deps);
   registerUbl(program, deps);
   registerRun(program, deps);
   registerSchema(program, deps);
 
+  strictifyCommands(program);
+
   return program;
+}
+
+/**
+ * Walk every registered (sub)command tree and apply strict parsing:
+ *
+ * 1. `exitOverride()` — so unknown-option errors throw instead of
+ *    calling `process.exit` (Commander only sets this on the command
+ *    you call it on, not its children).
+ * 2. `configureOutput({ outputError: noop })` — suppress Commander's
+ *    built-in stderr writes; our catch block renders the error via
+ *    `renderError` in the correct format.
+ * 3. Copy global options (`--format`, `--verbose`, `--no-color`) onto
+ *    every leaf command so Commander recognises them.
+ * 4. `allowUnknownOption(false)` on leaf commands so typos like
+ *    `--output` are rejected instead of being silently consumed as
+ *    positional arguments.
+ */
+function strictifyCommands(root: Command): void {
+  const globalOptions = root.options.slice();
+  (function walk(cmd: Command): void {
+    cmd.exitOverride();
+    cmd.configureOutput({
+      outputError: () => {
+        /* suppressed — rendered by runProgram catch block */
+      },
+    });
+    const subs = cmd.commands as Command[];
+    if (subs.length === 0) {
+      for (const opt of globalOptions) {
+        if (!cmd.options.some((o) => o.long === opt.long)) {
+          cmd.addOption(opt);
+        }
+      }
+      cmd.allowUnknownOption(false);
+    }
+    for (const sub of subs) {
+      walk(sub);
+    }
+  })(root);
 }

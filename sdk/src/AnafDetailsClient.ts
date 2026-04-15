@@ -7,7 +7,7 @@
  *
  * @example
  * ```typescript
- * import { AnafDetailsClient } from 'efactura-ts-sdk';
+ * import { AnafDetailsClient } from 'anaf-ts-sdk';
  *
  * const detailsClient = new AnafDetailsClient();
  *
@@ -25,7 +25,7 @@
 
 import { HttpClient } from './utils/httpClient';
 import { tryCatch } from './tryCatch';
-import { AnafApiError, AnafNotFoundError } from './errors';
+import { AnafNotFoundError } from './errors';
 import {
   AnafDetailsConfig,
   AnafCompanyData,

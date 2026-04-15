@@ -1,6 +1,6 @@
 import { CommanderError } from 'commander';
 import { buildProgram, type ServiceRegistry } from './buildProgram';
-import { ContextService, TokenStore } from '../state';
+import { CompanyService, ConfigStore, CredentialService, TokenStore, getXdgPaths } from '../state';
 import { LookupService, AuthService, EfacturaService, UblService } from '../services';
 import {
   CliError,
@@ -12,6 +12,7 @@ import {
   type WriteStreams,
   type OutputFormat,
 } from '../output';
+import { installVerboseFetch } from '../output/verbose';
 
 export interface RunProgramOptions {
   argv: readonly string[];
@@ -26,27 +27,33 @@ export function normalizeThrown(value: unknown): Error {
   return new Error(String(value));
 }
 
-function preParseFormat(argv: readonly string[]): OutputFormat {
-  // The --json flag is global. We need to know it BEFORE we build
-  // the OutputContext that the leaves use, so we scan argv linearly.
-  // commander stops option parsing at the first `--`, so do we.
-  for (const tok of argv.slice(2)) {
-    if (tok === '--') return 'text';
-    if (tok === '--json') return 'json';
-  }
-  return 'text';
+interface PreParsedFlags {
+  format: OutputFormat;
+  verbose: boolean;
 }
 
-// Commander 12 CommanderError code inventory (from commander/lib/command.js).
-//
-// Success-side codes — program completed its intent (help/version), no error envelope.
+function preParseFlags(argv: readonly string[]): PreParsedFlags {
+  let format: OutputFormat = 'text';
+  let verbose = false;
+  const tokens = argv.slice(2);
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok === '--') break;
+    if (tok === '--format' && i + 1 < tokens.length) {
+      const fmt = tokens[i + 1];
+      if (fmt === 'json' || fmt === 'yaml' || fmt === 'text') format = fmt;
+    }
+    if (tok === '--verbose') verbose = true;
+  }
+  return { format, verbose };
+}
+
 const COMMANDER_SUCCESS_CODES: ReadonlySet<string> = new Set([
   'commander.helpDisplayed',
   'commander.help',
   'commander.version',
 ]);
 
-// User-input codes — the user gave the CLI bad input; these map to BAD_USAGE / exit 2.
 const COMMANDER_USER_INPUT_CODES: ReadonlySet<string> = new Set([
   'commander.error',
   'commander.missingArgument',
@@ -60,16 +67,6 @@ const COMMANDER_USER_INPUT_CODES: ReadonlySet<string> = new Set([
   'commander.invalidOptionArgument',
 ]);
 
-/**
- * Classify a commander error into the CLI's error taxonomy.
- *
- * Returns `null` for success-side codes (help/version) — caller should exit 0.
- * Returns a `CliError` for every other code:
- *   - user-input codes become `BAD_USAGE` (category: `user_input`, exit 2)
- *   - everything else (including `commander.executeSubCommandAsync` and any
- *     future commander code) becomes `COMMANDER_ERROR` (category: `generic`,
- *     exit 1) so generic execution failures are not mis-attributed to the user.
- */
 export function classifyCommanderError(raw: CommanderError): CliError | null {
   if (COMMANDER_SUCCESS_CODES.has(raw.code)) {
     return null;
@@ -86,80 +83,57 @@ export function classifyCommanderError(raw: CommanderError): CliError | null {
 export async function runProgram(options: RunProgramOptions): Promise<void> {
   const streams: WriteStreams = options.streams ?? { stdout: process.stdout, stderr: process.stderr };
   const exit = options.exit ?? ((code: number) => process.exit(code));
-  // Build a fallback text-mode OutputContext immediately so the catch block
-  // always has somewhere to render, even if a setup-phase call throws before
-  // we've resolved the real format. It is replaced inside the try block as
-  // soon as we know whether the caller asked for --json.
   let output: OutputContext = makeOutputContext({ format: 'text', streams });
 
+  let teardownVerbose: (() => void) | undefined;
   try {
-    const format = preParseFormat(options.argv);
-    output = makeOutputContext({ format, streams });
+    const flags = preParseFlags(options.argv);
+    output = makeOutputContext({ format: flags.format, streams });
+    if (flags.verbose) teardownVerbose = installVerboseFetch(streams);
 
-    // Service-registry merge (FROZEN pattern — P1.6).
-    // Fill every required field from the caller's partial injection, falling
-    // back to a default-constructed service. Downstream workstreams append
-    // new fields here; they MUST NOT change or reorder existing ones.
-    //
-    // NOTE: `contextService` and `tokenStore` are constructed as locals
-    // BEFORE the literal so that `authService`'s default can reference them
-    // as constructor args. `AuthService` requires both.
-    const contextService = options.services?.contextService ?? new ContextService();
-    const tokenStore = options.services?.tokenStore ?? new TokenStore();
-    // Hoist `authService` and `lookupService` to locals so downstream default
-    // constructions (`efacturaService`, `ublService`) see the SAME instances
-    // that are exposed through the registry. Without this, the registry
-    // literal would evaluate `options.services?.authService` twice (etc.) and
-    // default-construct distinct services behind the user's back.
-    const authService = options.services?.authService ?? new AuthService({ contextService, tokenStore });
-    const lookupService = options.services?.lookupService ?? new LookupService();
+    const paths = getXdgPaths();
+    const companyService = options.services?.companyService ?? new CompanyService({ paths });
+    const credentialService = options.services?.credentialService ?? new CredentialService({ paths });
+    const configStore = options.services?.configStore ?? new ConfigStore({ paths });
+    const tokenStore = options.services?.tokenStore ?? new TokenStore({ paths });
+    const lookupService = options.services?.lookupService ?? new LookupService({ paths });
+    const authService =
+      options.services?.authService ?? new AuthService({ credentialService, companyService, configStore, tokenStore });
     const services: ServiceRegistry = {
-      contextService,
+      companyService,
+      credentialService,
+      configStore,
       lookupService,
       tokenStore,
       authService,
       efacturaService:
-        options.services?.efacturaService ?? new EfacturaService({ contextService, tokenStore, authService }),
-      ublService: options.services?.ublService ?? new UblService({ contextService, lookupService }),
+        options.services?.efacturaService ??
+        new EfacturaService({ companyService, credentialService, configStore, tokenStore, lookupService }),
+      ublService: options.services?.ublService ?? new UblService({ companyService, configStore, lookupService }),
     };
 
     const program = buildProgram({
       output,
       services,
+      paths,
     });
 
-    // Make commander throw instead of calling process.exit so we can
-    // surface --version, --help, and validation errors through our handler.
-    program.exitOverride();
-    // Route commander's stderr/stdout writes through the injected streams,
-    // so --version and --help land on the captured stdout in tests.
-    //
-    // IMPORTANT: `outputError` is suppressed. Commander's `Command.error()`
-    // uses it to auto-emit a plain-text "error: ..." line BEFORE throwing the
-    // CommanderError. We catch that CommanderError below and render our own
-    // envelope (text or JSON). Letting commander's plain-text line through
-    // would corrupt JSON-mode stderr with a non-JSON prefix and produce
-    // duplicate output in text mode. Suppressing `outputError` does NOT
-    // affect --help / --version (both route through `writeOut`).
+    // exitOverride + configureOutput are set by buildProgram's
+    // strictifyCommands walk on every command (including leaves).
+    // Redirect --help / --version output to the caller's streams.
     program.configureOutput({
-      writeOut: (s: string) => {
-        streams.stdout.write(s);
-      },
-      writeErr: (s: string) => {
-        streams.stderr.write(s);
-      },
-      outputError: (_str: string, _write: (s: string) => void) => {
-        // Intentionally empty: runProgram renders the error envelope in the catch below.
-      },
+      writeOut: (s: string) => streams.stdout.write(s),
+      writeErr: (s: string) => streams.stderr.write(s),
     });
 
     await program.parseAsync(options.argv as string[]);
+    teardownVerbose?.();
     exit(EXIT_CODES.SUCCESS);
   } catch (raw) {
+    teardownVerbose?.();
     if (raw instanceof CommanderError) {
       const wrapped = classifyCommanderError(raw);
       if (wrapped === null) {
-        // help / version — successful completion
         exit(EXIT_CODES.SUCCESS);
         return;
       }

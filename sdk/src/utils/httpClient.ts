@@ -82,6 +82,7 @@ export class HttpClient {
       if (
         error instanceof AnafApiError ||
         error instanceof AnafAuthenticationError ||
+        error instanceof AnafNotFoundError ||
         error instanceof AnafRateLimitError ||
         error instanceof AnafValidationError
       ) {

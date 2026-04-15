@@ -1,48 +1,42 @@
 import { z } from 'zod';
 
-// ^[a-z0-9][a-z0-9._-]*$ — disallows uppercase, slashes, leading dot/hyphen, spaces
-export const contextNameSchema = z
-  .string()
-  .min(1)
-  .regex(/^[a-z0-9][a-z0-9._-]*$/, 'context name must match /^[a-z0-9][a-z0-9._-]*$/');
+function isLocalhostHttps(uri: string): boolean {
+  try {
+    const u = new URL(uri);
+    return u.protocol === 'https:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1');
+  } catch {
+    return false;
+  }
+}
 
-const authConfigSchema = z.object({
-  clientId: z.string().min(1),
-  redirectUri: z.string().min(1),
+export const credentialFileSchema = z
+  .object({
+    clientId: z.string().min(1),
+    clientSecret: z.string().min(1).optional(),
+    redirectUri: z.string().min(1).refine(isLocalhostHttps, {
+      message: 'redirectUri must be an https://localhost (or 127.0.0.1) URL',
+    }),
+  })
+  .strict();
+
+export type CredentialFile = z.infer<typeof credentialFileSchema>;
+
+export const companyFileSchema = z
+  .object({
+    cui: z.string().min(1),
+    name: z.string().min(1),
+    registrationNumber: z.string().optional(),
+    address: z.string().optional(),
+  })
+  .strict();
+
+export type CompanyFile = z.infer<typeof companyFileSchema>;
+
+// Not .strict() — unknown keys (e.g. `currentContext` from older versions) are stripped on read.
+export const cliConfigSchema = z.object({
+  activeCui: z.string().optional(),
+  env: z.enum(['test', 'prod']).optional(),
 });
-
-const contextDefaultsSchema = z
-  .object({
-    currency: z.string().optional(),
-    output: z.enum(['stdout', 'file']).optional(),
-  })
-  .strict();
-
-// On-disk shape — never includes name (name is derived from filename).
-export const contextFileSchema = z
-  .object({
-    companyCui: z.string().min(1),
-    environment: z.enum(['test', 'prod']),
-    auth: authConfigSchema,
-    defaults: contextDefaultsSchema.optional(),
-  })
-  .strict();
-
-export type ContextFile = z.infer<typeof contextFileSchema>;
-
-const cliConfigDefaultsSchema = z
-  .object({
-    output: z.enum(['stdout', 'file']).optional(),
-    format: z.enum(['text', 'json']).optional(),
-  })
-  .strict();
-
-export const cliConfigSchema = z
-  .object({
-    currentContext: contextNameSchema.optional(),
-    defaults: cliConfigDefaultsSchema.optional(),
-  })
-  .strict();
 
 export const tokenRecordSchema = z
   .object({

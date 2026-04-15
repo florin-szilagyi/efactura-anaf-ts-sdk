@@ -1,4 +1,5 @@
 import { Writable } from 'node:stream';
+import { parse as parseYaml } from 'yaml';
 import { buildProgram } from '../../../src/commands/buildProgram';
 import { LookupService } from '../../../src/services';
 import { CliError } from '../../../src/output/errors';
@@ -63,19 +64,24 @@ function harness() {
   const lookupService = new StubLookupService();
   const text = makeOutputContext({ format: 'text', streams: { stdout, stderr } });
   const json = makeOutputContext({ format: 'json', streams: { stdout, stderr } });
+  const yaml = makeOutputContext({ format: 'yaml', streams: { stdout, stderr } });
   const services = { lookupService: lookupService as unknown as LookupService } as never;
-  return { stdout, stderr, lookupService, text, json, services };
+  return { stdout, stderr, lookupService, text, json, yaml, services };
 }
 
 describe('lookupCompany', () => {
-  it('text mode prints one line per company', async () => {
+  it('text mode prints a table with header and one row per company', async () => {
     const h = harness();
     h.lookupService.batchResult = [fakeCompany('12345678', 'Acme'), fakeCompany('87654321', 'Beta')];
     await lookupCompany({ output: h.text, services: h.services }, ['RO12345678', 'RO87654321'], {});
     const lines = h.stdout.buf.split('\n').filter(Boolean);
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toContain('12345678');
-    expect(lines[0]).toContain('Acme');
+    expect(lines).toHaveLength(4); // header + separator + 2 rows
+    expect(lines[0]).toContain('CUI');
+    expect(lines[0]).toContain('Name');
+    expect(lines[2]).toContain('12345678');
+    expect(lines[2]).toContain('Acme');
+    expect(lines[3]).toContain('87654321');
+    expect(lines[3]).toContain('Beta');
   });
 
   it('json mode emits a companies envelope', async () => {
@@ -86,6 +92,15 @@ describe('lookupCompany', () => {
     expect(parsed.success).toBe(true);
     expect(parsed.data.companies).toHaveLength(1);
     expect(parsed.data.companies[0].vatCode).toBe('12345678');
+  });
+
+  it('yaml mode emits structured YAML', async () => {
+    const h = harness();
+    h.lookupService.batchResult = [fakeCompany('12345678')];
+    await lookupCompany({ output: h.yaml, services: h.services }, ['RO12345678'], {});
+    const parsed = parseYaml(h.stdout.buf);
+    expect(parsed.companies).toHaveLength(1);
+    expect(parsed.companies[0].vatCode).toBe('12345678');
   });
 
   it('propagates LOOKUP_FAILED CliError from the service', async () => {

@@ -4,9 +4,30 @@ import type { MessageFilter } from 'anaf-ts-sdk';
 import type { CommandDeps } from '../buildProgram';
 import { CliError } from '../../output/errors';
 import { renderSuccess, writeBinary } from '../../output';
+import { kv, table } from '../../output/format';
+
+/** Friendly aliases for ANAF message filter codes. */
+const FILTER_ALIASES: Record<string, MessageFilter> = {
+  sent: 'T' as MessageFilter,
+  received: 'P' as MessageFilter,
+  errors: 'E' as MessageFilter,
+  'buyer-messages': 'R' as MessageFilter,
+};
+
+function resolveFilter(raw?: string): MessageFilter | undefined {
+  if (!raw) return undefined;
+  const alias = FILTER_ALIASES[raw.toLowerCase()];
+  if (alias) return alias;
+  const upper = raw.toUpperCase();
+  if (['T', 'P', 'E', 'R'].includes(upper)) return upper as MessageFilter;
+  throw new CliError({
+    code: 'BAD_USAGE',
+    message: `Invalid --filter "${raw}". Use: sent, received, errors, buyer-messages (or T, P, E, R).`,
+    category: 'user_input',
+  });
+}
 
 interface UploadCmdOpts {
-  context?: string;
   xml?: string;
   stdin?: boolean;
   clientSecretStdin?: boolean;
@@ -17,20 +38,17 @@ interface UploadCmdOpts {
 }
 
 interface StatusCmdOpts {
-  context?: string;
   uploadId?: string;
   clientSecretStdin?: boolean;
 }
 
 interface DownloadCmdOpts {
-  context?: string;
   downloadId?: string;
   out?: string;
   clientSecretStdin?: boolean;
 }
 
 interface MessagesCmdOpts {
-  context?: string;
   days?: string;
   filter?: string;
   page?: string;
@@ -40,7 +58,6 @@ interface MessagesCmdOpts {
 }
 
 interface ValidateCmdOpts {
-  context?: string;
   xml?: string;
   stdin?: boolean;
   standard?: 'FACT1' | 'FCN';
@@ -48,14 +65,12 @@ interface ValidateCmdOpts {
 }
 
 interface ValidateSignatureCmdOpts {
-  context?: string;
   xml?: string;
   signature?: string;
   clientSecretStdin?: boolean;
 }
 
 interface PdfCmdOpts {
-  context?: string;
   xml?: string;
   stdin?: boolean;
   standard?: 'FACT1' | 'FCN';
@@ -66,8 +81,6 @@ interface PdfCmdOpts {
 
 /**
  * Read the entirety of stdin and return it. Blocks until stdin closes.
- * NEVER call this in unit tests — it will hang. Only invoked when the user
- * passes `--stdin` or `--client-secret-stdin`.
  */
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -82,20 +95,25 @@ async function readStdin(): Promise<string> {
 }
 
 /**
- * Resolve the OAuth client secret from env or stdin. Duplicates a thin slice
- * of `AuthService.resolveSecret` so the handlers stay free of service
- * construction — if duplication grows, P3.x can extract a shared util.
+ * Resolve the OAuth client secret from the credential, env, or stdin.
  */
-async function resolveClientSecret(opts: { clientSecretStdin?: boolean }): Promise<string> {
+async function resolveClientSecret(deps: CommandDeps, opts: { clientSecretStdin?: boolean }): Promise<string> {
   const env = process.env.ANAF_CLIENT_SECRET;
   if (env && env.length > 0) return env;
   if (opts.clientSecretStdin) {
     const fromStdin = (await readStdin()).trim();
     if (fromStdin.length > 0) return fromStdin;
   }
+  try {
+    const cred = deps.services.credentialService.get();
+    if (cred.clientSecret && cred.clientSecret.length > 0) return cred.clientSecret;
+  } catch {
+    // Credential not configured — fall through to error
+  }
   throw new CliError({
     code: 'CLIENT_SECRET_MISSING',
-    message: 'OAuth client secret is required. Set ANAF_CLIENT_SECRET or pass --client-secret-stdin.',
+    message:
+      'OAuth client secret is required. Set ANAF_CLIENT_SECRET, pass --client-secret-stdin, or store it in the credential.',
     category: 'auth',
   });
 }
@@ -136,9 +154,8 @@ function parseNumberOpt(value: string | undefined, name: string): number | undef
 
 export async function efacturaUpload(deps: CommandDeps, opts: UploadCmdOpts): Promise<void> {
   const xml = await resolveXmlInput(opts);
-  const clientSecret = await resolveClientSecret(opts);
+  const clientSecret = await resolveClientSecret(deps, opts);
   const response = await deps.services.efacturaService.upload({
-    contextName: opts.context,
     xml,
     clientSecret,
     isB2C: false,
@@ -149,14 +166,13 @@ export async function efacturaUpload(deps: CommandDeps, opts: UploadCmdOpts): Pr
       executare: opts.executare,
     },
   });
-  renderSuccess(deps.output, response, (d) => `upload accepted: ${d.indexIncarcare}`);
+  renderSuccess(deps.output, response, (d) => kv([['Upload ID', String(d.indexIncarcare)]]));
 }
 
 export async function efacturaUploadB2C(deps: CommandDeps, opts: UploadCmdOpts): Promise<void> {
   const xml = await resolveXmlInput(opts);
-  const clientSecret = await resolveClientSecret(opts);
+  const clientSecret = await resolveClientSecret(deps, opts);
   const response = await deps.services.efacturaService.upload({
-    contextName: opts.context,
     xml,
     clientSecret,
     isB2C: true,
@@ -167,7 +183,7 @@ export async function efacturaUploadB2C(deps: CommandDeps, opts: UploadCmdOpts):
       executare: opts.executare,
     },
   });
-  renderSuccess(deps.output, response, (d) => `B2C upload accepted: ${d.indexIncarcare}`);
+  renderSuccess(deps.output, response, (d) => kv([['Upload ID (B2C)', String(d.indexIncarcare)]]));
 }
 
 export async function efacturaStatus(deps: CommandDeps, opts: StatusCmdOpts): Promise<void> {
@@ -178,16 +194,16 @@ export async function efacturaStatus(deps: CommandDeps, opts: StatusCmdOpts): Pr
       category: 'user_input',
     });
   }
-  const clientSecret = await resolveClientSecret(opts);
+  const clientSecret = await resolveClientSecret(deps, opts);
   const response = await deps.services.efacturaService.getStatus({
-    contextName: opts.context,
     uploadId: opts.uploadId,
     clientSecret,
   });
-  renderSuccess(
-    deps.output,
-    response,
-    (d) => `status: ${d.stare}${d.idDescarcare ? ` (download id: ${d.idDescarcare})` : ''}`
+  renderSuccess(deps.output, response, (d) =>
+    kv([
+      ['Status', d.stare],
+      ['Download ID', d.idDescarcare ?? undefined],
+    ])
   );
 }
 
@@ -199,9 +215,8 @@ export async function efacturaDownload(deps: CommandDeps, opts: DownloadCmdOpts)
       category: 'user_input',
     });
   }
-  const clientSecret = await resolveClientSecret(opts);
+  const clientSecret = await resolveClientSecret(deps, opts);
   const bytes = await deps.services.efacturaService.download({
-    contextName: opts.context,
     downloadId: opts.downloadId,
     clientSecret,
   });
@@ -213,34 +228,62 @@ export async function efacturaMessages(deps: CommandDeps, opts: MessagesCmdOpts)
   const startTime = parseNumberOpt(opts.startTime, '--start-time');
   const endTime = parseNumberOpt(opts.endTime, '--end-time');
   const page = parseNumberOpt(opts.page, '--page');
-  const clientSecret = await resolveClientSecret(opts);
+  const clientSecret = await resolveClientSecret(deps, opts);
+
+  const filter = resolveFilter(opts.filter);
 
   const response = await deps.services.efacturaService.getMessages({
-    contextName: opts.context,
     clientSecret,
     days,
-    filter: opts.filter as MessageFilter | undefined,
+    filter,
     startTime,
     endTime,
     page,
   });
   renderSuccess(deps.output, response, (d) => {
-    const messages = (d as { mesaje?: Array<{ id?: string; tip?: string; data_creare?: string }> }).mesaje;
+    const messages = (d as { mesaje?: Array<{
+      id?: string; tip?: string; data_creare?: string;
+      cif_emitent?: string; emitentName?: string;
+      cif_beneficiar?: string; beneficiarName?: string;
+    }> }).mesaje;
     if (!messages || messages.length === 0) return '(no messages)';
-    return messages.map((m) => `${m.id ?? '?'}\t${m.tip ?? ''}\t${m.data_creare ?? ''}`).join('\n');
+    return table(
+      [
+        { key: 'id', header: 'ID' },
+        { key: 'tip', header: 'Type' },
+        { key: 'data_creare', header: 'Created' },
+        { key: 'cif_emitent', header: 'Emitter CUI' },
+        { key: 'emitentName', header: 'Emitter' },
+        { key: 'cif_beneficiar', header: 'Beneficiary CUI' },
+        { key: 'beneficiarName', header: 'Beneficiary' },
+      ],
+      messages.map((m) => ({
+        id: m.id ?? '?',
+        tip: m.tip ?? '',
+        data_creare: m.data_creare ?? '',
+        cif_emitent: m.cif_emitent ?? '',
+        emitentName: m.emitentName ?? '',
+        cif_beneficiar: m.cif_beneficiar ?? '',
+        beneficiarName: m.beneficiarName ?? '',
+      }))
+    );
   });
 }
 
 export async function efacturaValidate(deps: CommandDeps, opts: ValidateCmdOpts): Promise<void> {
   const xml = await resolveXmlInput(opts);
-  const clientSecret = await resolveClientSecret(opts);
+  const clientSecret = await resolveClientSecret(deps, opts);
   const result = await deps.services.efacturaService.validateXml({
-    contextName: opts.context,
     clientSecret,
     xml,
     standard: opts.standard ?? 'FACT1',
   });
-  renderSuccess(deps.output, result, (d) => `${d.valid ? 'VALID' : 'INVALID'}: ${d.details ?? ''}`);
+  renderSuccess(deps.output, result, (d) =>
+    kv([
+      ['Result', d.valid ? 'VALID' : 'INVALID'],
+      ['Details', d.details ?? undefined],
+    ])
+  );
   if (!result.valid) {
     throw new CliError({
       code: 'VALIDATION_FAILED',
@@ -266,18 +309,22 @@ export async function efacturaValidateSignature(deps: CommandDeps, opts: Validat
       category: 'user_input',
     });
   }
-  const clientSecret = await resolveClientSecret(opts);
+  const clientSecret = await resolveClientSecret(deps, opts);
   const xmlBytes = fs.readFileSync(opts.xml);
   const sigBytes = fs.readFileSync(opts.signature);
   const result = await deps.services.efacturaService.validateSignature({
-    contextName: opts.context,
     clientSecret,
     xml: xmlBytes,
     signature: sigBytes,
     xmlFilename: opts.xml,
     signatureFilename: opts.signature,
   });
-  renderSuccess(deps.output, result, (d) => `${d.valid ? 'VALID' : 'INVALID'}: ${d.details ?? ''}`);
+  renderSuccess(deps.output, result, (d) =>
+    kv([
+      ['Result', d.valid ? 'VALID' : 'INVALID'],
+      ['Details', d.details ?? undefined],
+    ])
+  );
   if (!result.valid) {
     throw new CliError({
       code: 'SIGNATURE_VALIDATION_FAILED',
@@ -289,11 +336,9 @@ export async function efacturaValidateSignature(deps: CommandDeps, opts: Validat
 
 export async function efacturaPdf(deps: CommandDeps, opts: PdfCmdOpts): Promise<void> {
   const xml = await resolveXmlInput(opts);
-  const clientSecret = await resolveClientSecret(opts);
-  // commander sets `validation` to true by default and flips to false on --no-validation.
+  const clientSecret = await resolveClientSecret(deps, opts);
   const noValidation = opts.validation === false;
   const bytes = await deps.services.efacturaService.convertToPdf({
-    contextName: opts.context,
     clientSecret,
     xml,
     standard: opts.standard ?? 'FACT1',
@@ -308,7 +353,6 @@ export function registerEfactura(parent: Command, deps: CommandDeps): void {
   efactura
     .command('upload')
     .description('Upload an XML document to e-Factura')
-    .option('--context <name>', 'context name override')
     .option('--xml <path>', 'path to XML file')
     .option('--stdin', 'read XML from stdin')
     .option('--client-secret-stdin', 'read OAuth client secret from stdin')
@@ -321,7 +365,6 @@ export function registerEfactura(parent: Command, deps: CommandDeps): void {
   efactura
     .command('upload-b2c')
     .description('Upload a B2C XML document')
-    .option('--context <name>', 'context name override')
     .option('--xml <path>', 'path to XML file')
     .option('--stdin', 'read XML from stdin')
     .option('--client-secret-stdin', 'read OAuth client secret from stdin')
@@ -331,7 +374,6 @@ export function registerEfactura(parent: Command, deps: CommandDeps): void {
   efactura
     .command('status')
     .description('Check upload status')
-    .option('--context <name>', 'context name override')
     .option('--upload-id <id>', 'ANAF upload id')
     .option('--client-secret-stdin', 'read OAuth client secret from stdin')
     .action((opts: StatusCmdOpts) => efacturaStatus(deps, opts));
@@ -339,7 +381,6 @@ export function registerEfactura(parent: Command, deps: CommandDeps): void {
   efactura
     .command('download')
     .description('Download an e-Factura document by id')
-    .option('--context <name>', 'context name override')
     .option('--download-id <id>', 'ANAF download id')
     .option('--out <path>', 'output file path')
     .option('--client-secret-stdin', 'read OAuth client secret from stdin')
@@ -348,9 +389,8 @@ export function registerEfactura(parent: Command, deps: CommandDeps): void {
   efactura
     .command('messages')
     .description('List recent e-Factura messages')
-    .option('--context <name>', 'context name override')
     .option('--days <n>', 'lookback window in days')
-    .option('--filter <code>', 'message filter code: T|P|E|R')
+    .option('--filter <type>', 'sent | received | errors | buyer-messages (or raw: T|P|E|R)')
     .option('--page <n>', 'page number')
     .option('--start-time <ms>', 'pagination start time (epoch ms)')
     .option('--end-time <ms>', 'pagination end time (epoch ms)')
@@ -360,7 +400,6 @@ export function registerEfactura(parent: Command, deps: CommandDeps): void {
   efactura
     .command('validate')
     .description('Validate an XML document via the ANAF tools service')
-    .option('--context <name>', 'context name override')
     .option('--xml <path>', 'path to XML file')
     .option('--stdin', 'read XML from stdin')
     .option('--standard <std>', 'standard (FACT1|FCN)')
@@ -370,7 +409,6 @@ export function registerEfactura(parent: Command, deps: CommandDeps): void {
   efactura
     .command('validate-signature')
     .description('Validate an XML signature via ANAF')
-    .option('--context <name>', 'context name override')
     .option('--xml <path>', 'path to XML file')
     .option('--signature <path>', 'path to signature file')
     .option('--client-secret-stdin', 'read OAuth client secret from stdin')
@@ -379,7 +417,6 @@ export function registerEfactura(parent: Command, deps: CommandDeps): void {
   efactura
     .command('pdf')
     .description('Convert an XML document to PDF via ANAF')
-    .option('--context <name>', 'context name override')
     .option('--xml <path>', 'path to XML file')
     .option('--stdin', 'read XML from stdin')
     .option('--standard <std>', 'standard (FACT1|FCN)')

@@ -58,9 +58,10 @@ class StubEfacturaService {
     this.downloadCalls.push(args);
     return Buffer.from('ZIPDATA');
   }
+  messagesResult: unknown = { mesaje: [{ id: 'm-1' }] };
   async getMessages(args: MessagesArgs) {
     this.messagesCalls.push(args);
-    return { mesaje: [{ id: 'm-1' }] } as never;
+    return this.messagesResult as never;
   }
   async validateXml(args: ValidateArgs) {
     this.validateCalls.push(args);
@@ -312,6 +313,52 @@ describe('efacturaMessages', () => {
       await expect(efacturaMessages({ output: h.text, services: h.services }, { days: 'abc' })).rejects.toBeInstanceOf(
         CliError
       );
+    } finally {
+      h.restore();
+    }
+  });
+
+  it.each([
+    ['sent', 'T'],
+    ['received', 'P'],
+    ['errors', 'E'],
+    ['buyer-messages', 'R'],
+    ['T', 'T'],
+    ['p', 'P'],
+  ])('resolves --filter "%s" to SDK filter "%s"', async (alias, expected) => {
+    const h = harness();
+    try {
+      await efacturaMessages({ output: h.text, services: h.services }, { days: '7', filter: alias });
+      expect(h.efacturaService.messagesCalls[0].filter).toBe(expected);
+    } finally {
+      h.restore();
+    }
+  });
+
+  it('throws BAD_USAGE for an invalid --filter value', async () => {
+    const h = harness();
+    try {
+      await expect(
+        efacturaMessages({ output: h.text, services: h.services }, { days: '7', filter: 'bogus' })
+      ).rejects.toMatchObject({ code: 'BAD_USAGE' });
+    } finally {
+      h.restore();
+    }
+  });
+
+  it('includes beneficiarName in table output', async () => {
+    const h = harness();
+    h.efacturaService.messagesResult = {
+      mesaje: [{
+        id: '1', tip: 'FACTURA TRIMISA', data_creare: '202604131822', detalii: '',
+        cif_emitent: '111', emitentName: 'Acme SRL',
+        cif_beneficiar: '222', beneficiarName: 'Beta SRL',
+      }],
+    };
+    try {
+      await efacturaMessages({ output: h.text, services: h.services }, { days: '7' });
+      expect(h.stdout.buf).toContain('Beta SRL');
+      expect(h.stdout.buf).toContain('Acme SRL');
     } finally {
       h.restore();
     }

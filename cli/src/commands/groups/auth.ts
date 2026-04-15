@@ -1,31 +1,20 @@
+import path from 'node:path';
+import { execFile } from 'node:child_process';
 import type { Command } from 'commander';
 import type { CommandDeps } from '../buildProgram';
 import { CliError } from '../../output/errors';
 import { renderSuccess } from '../../output';
+import { kv, table } from '../../output/format';
+import { waitForCallback } from '../../services/callbackServer';
 
 interface LoginOpts {
-  context?: string;
   scope?: string;
-}
-
-interface CodeOpts {
-  context?: string;
-  code?: string;
-  stdin?: boolean;
+  noCallbackServer?: boolean;
   clientSecretStdin?: boolean;
 }
 
 interface RefreshOpts {
-  context?: string;
   clientSecretStdin?: boolean;
-}
-
-interface WhoamiOpts {
-  context?: string;
-}
-
-interface LogoutOpts {
-  context?: string;
 }
 
 function readSecretFromEnv(): string | undefined {
@@ -33,11 +22,6 @@ function readSecretFromEnv(): string | undefined {
   return v && v.length > 0 ? v : undefined;
 }
 
-/**
- * Read the entirety of stdin and return it trimmed. Blocks until stdin closes.
- * NEVER call this in unit tests — it will hang. Only invoked when the user
- * passes `--stdin` or `--client-secret-stdin`.
- */
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -50,133 +34,275 @@ async function readStdin(): Promise<string> {
   });
 }
 
-export async function authLogin(deps: CommandDeps, opts: LoginOpts): Promise<void> {
-  const result = deps.services.authService.buildAuthorizationUrl(opts.context, opts.scope);
-  // Print the URL to STDERR so stdout stays clean for the JSON envelope when
-  // the caller passes --json. Human guidance also goes to stderr.
-  deps.output.streams.stderr.write(`Open this URL in a browser:\n  ${result.url}\n\n`);
-  deps.output.streams.stderr.write(`Then run: anaf-cli auth code --code <pasted-code>\n`);
-  renderSuccess(
-    deps.output,
-    { context: result.context.name, url: result.url },
-    (d) => `login url ready for context: ${d.context}`
-  );
-}
-
-export async function authCode(deps: CommandDeps, opts: CodeOpts): Promise<void> {
-  let code = opts.code;
-  if (!code && opts.stdin) {
-    code = await readStdin();
-  }
-  if (!code) {
+/** Extract the port number from a localhost redirect URI like https://localhost:9002/callback */
+function portFromUri(uri: string): number {
+  const url = new URL(uri); // always valid — schema enforces https://localhost
+  if (!url.port) {
     throw new CliError({
       code: 'BAD_USAGE',
-      message: 'auth code: --code or --stdin is required',
+      message: `redirectUri "${uri}" has no port. ANAF requires an explicit port, e.g. https://localhost:9002/callback`,
       category: 'user_input',
     });
   }
-  const secretStdin = opts.clientSecretStdin ? await readStdin() : undefined;
-  const record = await deps.services.authService.exchangeCode({
-    contextName: opts.context,
-    code,
-    secret: { stdin: secretStdin, env: readSecretFromEnv() },
+  return parseInt(url.port, 10);
+}
+
+/** Open a URL in the default browser (best-effort, no throw). */
+function openBrowser(url: string): void {
+  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+  execFile(cmd, [url], () => {
+    /* ignore errors — user can open manually */
   });
+}
+
+export async function authLogin(deps: CommandDeps, cui: string, opts: LoginOpts): Promise<void> {
+  // 1. Read credential (throw if missing)
+  const credential = deps.services.credentialService.get();
+
+  // 2. Look up company from ANAF
+  const { stderr } = deps.output.streams;
+  stderr.write(`Looking up company ${cui} from ANAF...\n`);
+  const companyData = await deps.services.lookupService.getCompany(cui);
+  const company = {
+    cui: companyData.vatCode ?? cui.replace(/^RO/i, ''),
+    name: companyData.name,
+    registrationNumber: companyData.registrationNumber ?? undefined,
+    address: companyData.address ?? undefined,
+  };
+
+  // 3. Save company
+  deps.services.companyService.add(company);
+  stderr.write(`Registered company: ${company.name} (${company.cui})\n`);
+
+  // 4. Build authorization URL
+  const result = deps.services.authService.buildAuthorizationUrl(opts.scope);
+
+  if (opts.noCallbackServer) {
+    stderr.write(`Open this URL in a browser:\n  ${result.url}\n\n`);
+    stderr.write(`Then paste the authorization code with: anaf-cli auth code --code <pasted-code>\n`);
+    // Still set the active CUI even in manual flow
+    deps.services.configStore.setActiveCui(company.cui);
+    renderSuccess(
+      deps.output,
+      { cui: company.cui, name: company.name, url: result.url },
+      (d) => `login url ready for ${d.name} (${d.cui})`
+    );
+    return;
+  }
+
+  const secretStdin = opts.clientSecretStdin ? await readStdin() : undefined;
+  const secret = { stdin: secretStdin, env: readSecretFromEnv() };
+
+  const port = portFromUri(credential.redirectUri);
+  const tlsDir = path.join(deps.paths.appDataDir, 'tls');
+
+  stderr.write(`Opening browser for ANAF authentication...\n`);
+  stderr.write(`If you see a certificate warning, click "Advanced" > "Proceed" to trust it.\n\n`);
+  openBrowser(`https://localhost:${port}/`);
+
+  let code: string;
+  try {
+    const cb = await waitForCallback({ port, tlsDir, stderr, authUrl: result.url });
+    code = cb.code;
+  } catch (err) {
+    stderr.write(`\nCallback server unavailable: ${(err as Error).message}\n`);
+    stderr.write(`Open this URL in a browser:\n  ${result.url}\n\n`);
+    stderr.write(`Then paste the code with: anaf-cli auth code --code <pasted-code>\n`);
+    deps.services.configStore.setActiveCui(company.cui);
+    renderSuccess(
+      deps.output,
+      { cui: company.cui, name: company.name, url: result.url },
+      (d) => `login url ready for ${d.name} (${d.cui})`
+    );
+    return;
+  }
+
+  stderr.write(`Authorization code received. Exchanging for tokens...\n`);
+
+  // 5. Exchange code for token
+  const record = await deps.services.authService.exchangeCode({
+    code,
+    secret,
+  });
+
+  // 6. Set as active CUI
+  deps.services.configStore.setActiveCui(company.cui);
+
+  // 7. Print result
+  renderSuccess(
+    deps.output,
+    { cui: company.cui, name: company.name, expiresAt: record.expiresAt },
+    (d) => `Authenticated as ${d.name} (${d.cui})`
+  );
+}
+
+export async function authUse(deps: CommandDeps, cui: string): Promise<void> {
+  // Validate company exists
+  const company = deps.services.companyService.get(cui);
+  deps.services.configStore.setActiveCui(cui);
+  renderSuccess(deps.output, { cui: company.cui, name: company.name }, (d) => `Active: ${d.name} (${d.cui})`);
+}
+
+export async function authWhoami(deps: CommandDeps): Promise<void> {
+  const result = deps.services.authService.whoami();
+  if (!result.company) {
+    renderSuccess(
+      deps.output,
+      { tokenStatus: result.tokenStatus, env: result.env },
+      () => 'No active company. Run `anaf-cli auth login <CUI>` first.'
+    );
+    return;
+  }
   renderSuccess(
     deps.output,
     {
-      context: opts.context ?? '(current)',
-      expiresAt: record.expiresAt,
+      cui: result.company.cui,
+      name: result.company.name,
+      env: result.env,
+      tokenStatus: result.tokenStatus,
+      expiresAt: result.expiresAt,
+      obtainedAt: result.obtainedAt,
     },
-    (d) => `${d.context}: token persisted (expires ${d.expiresAt ?? '?'})`
+    (d) =>
+      kv([
+        ['Company', `${d.name} (${d.cui})`],
+        ['Environment', d.env],
+        ['Token', d.tokenStatus],
+        ['Expires', d.expiresAt ?? undefined],
+        ['Obtained', d.obtainedAt ?? undefined],
+      ])
   );
+}
+
+export async function authLs(deps: CommandDeps): Promise<void> {
+  const companies = deps.services.companyService.list();
+  const activeCui = deps.services.configStore.getActiveCui();
+  const env = deps.services.configStore.getEnv();
+  const data = {
+    activeCui,
+    env,
+    companies: companies.map((c) => ({
+      cui: c.cui,
+      name: c.name,
+      isActive: c.cui === activeCui,
+    })),
+  };
+  renderSuccess(deps.output, data, (d) => {
+    if (d.companies.length === 0) return '(no registered companies)';
+    return table(
+      [
+        { key: 'active', header: ' ' },
+        { key: 'cui', header: 'CUI' },
+        { key: 'name', header: 'Name' },
+      ],
+      d.companies.map((c) => ({ active: c.isActive ? '*' : '', cui: c.cui, name: c.name }))
+    );
+  });
+}
+
+export async function authRm(deps: CommandDeps, cui: string): Promise<void> {
+  deps.services.companyService.remove(cui);
+  // If the removed company was active, clear the active CUI
+  const activeCui = deps.services.configStore.getActiveCui();
+  if (activeCui === cui) {
+    deps.services.configStore.setActiveCui(undefined);
+  }
+  renderSuccess(deps.output, { removed: cui }, (d) => `removed: ${d.removed}`);
+}
+
+export async function authLogout(deps: CommandDeps): Promise<void> {
+  deps.services.authService.logout();
+  renderSuccess(deps.output, { loggedOut: true }, () => 'token removed');
 }
 
 export async function authRefresh(deps: CommandDeps, opts: RefreshOpts): Promise<void> {
   const secretStdin = opts.clientSecretStdin ? await readStdin() : undefined;
   const record = await deps.services.authService.refresh({
-    contextName: opts.context,
     secret: { stdin: secretStdin, env: readSecretFromEnv() },
   });
+  renderSuccess(deps.output, { expiresAt: record.expiresAt }, (d) => `refreshed (expires ${d.expiresAt ?? '?'})`);
+}
+
+export async function authToken(deps: CommandDeps, opts: RefreshOpts): Promise<void> {
+  if (opts.clientSecretStdin) {
+    // refresh first, then show
+    const secretStdin = await readStdin();
+    await deps.services.authService.refresh({
+      secret: { stdin: secretStdin, env: readSecretFromEnv() },
+    });
+  }
+
+  const record = deps.services.authService.getToken();
+  if (!record) {
+    throw new CliError({
+      code: 'NO_REFRESH_TOKEN',
+      message: 'No token found. Run `anaf-cli auth login <CUI>` first.',
+      category: 'auth',
+    });
+  }
+
   renderSuccess(
     deps.output,
     {
-      context: opts.context ?? '(current)',
+      accessToken: record.accessToken,
+      refreshToken: record.refreshToken,
       expiresAt: record.expiresAt,
+      obtainedAt: record.obtainedAt,
     },
-    (d) => `${d.context}: refreshed (expires ${d.expiresAt ?? '?'})`
+    (d) => [
+      `accessToken:  ${d.accessToken ?? '(none — run auth refresh)'}`,
+      `refreshToken: ${d.refreshToken}`,
+      `expiresAt:    ${d.expiresAt ?? '?'}`,
+      `obtainedAt:   ${d.obtainedAt ?? '?'}`,
+    ].join('\n'),
   );
 }
 
-export async function authWhoami(deps: CommandDeps, opts: WhoamiOpts): Promise<void> {
-  const result = deps.services.authService.whoami(opts.context);
-  renderSuccess(
-    deps.output,
-    {
-      context: result.context.name,
-      tokenStatus: result.tokenStatus,
-      expiresAt: result.expiresAt,
-      obtainedAt: result.obtainedAt,
-    },
-    (d) => {
-      if (d.tokenStatus === 'missing') return `${d.context}: missing`;
-      return `${d.context}: ${d.tokenStatus} (expires ${d.expiresAt ?? '?'})`;
-    }
-  );
-}
-
-export async function authLogout(deps: CommandDeps, opts: LogoutOpts): Promise<void> {
-  deps.services.authService.logout(opts.context);
-  renderSuccess(
-    deps.output,
-    { context: opts.context ?? '(current)', loggedOut: true },
-    (d) => `${d.context}: token removed`
-  );
-}
-
-/**
- * Register the `auth` command group.
- *
- * NOTE: each leaf also declares `--context <name>` locally. Commander's global
- * `--context` flag (attached to the root program in P1.2) does NOT auto-merge
- * into leaf `opts()`, so we add the shadowing option on each subcommand. This
- * workaround is documented in the P1.5 plan and is stable until P3.x revisits
- * global option propagation.
- */
 export function registerAuth(parent: Command, deps: CommandDeps): void {
-  const auth = parent.command('auth').description('OAuth authentication against ANAF');
+  const auth = parent.command('auth').description('Companies and OAuth authentication');
 
   auth
-    .command('login')
-    .description('Print the OAuth authorization URL for the active context')
-    .option('--context <name>', 'context name override')
+    .command('login <cui>')
+    .description('Look up a company from ANAF, authenticate, and set as active')
     .option('--scope <scope>', 'OAuth scope override')
-    .action((opts: LoginOpts) => authLogin(deps, opts));
+    .option('--no-callback-server', 'skip local server, print URL for manual flow')
+    .option('--client-secret-stdin', 'read the client secret from stdin')
+    .action((cui: string, opts: LoginOpts) => authLogin(deps, cui, opts));
 
   auth
-    .command('code')
-    .description('Exchange a pasted authorization code for tokens')
-    .option('--context <name>', 'context name override')
-    .option('--code <code>', 'authorization code from the browser')
-    .option('--stdin', 'read the authorization code from stdin')
-    .option('--client-secret-stdin', 'read the client secret from stdin')
-    .action((opts: CodeOpts) => authCode(deps, opts));
+    .command('use <cui>')
+    .description('Switch the active company')
+    .action((cui: string) => authUse(deps, cui));
+
+  auth
+    .command('whoami')
+    .description('Show active company + token status')
+    .action(() => authWhoami(deps));
+
+  auth
+    .command('ls')
+    .description('List all registered companies')
+    .action(() => authLs(deps));
+
+  auth
+    .command('rm <cui>')
+    .description('Remove a registered company')
+    .action((cui: string) => authRm(deps, cui));
+
+  auth
+    .command('logout')
+    .description('Discard tokens')
+    .action(() => authLogout(deps));
 
   auth
     .command('refresh')
-    .description('Force a refresh of the active context tokens')
-    .option('--context <name>', 'context name override')
+    .description('Force-refresh the access token')
     .option('--client-secret-stdin', 'read the client secret from stdin')
     .action((opts: RefreshOpts) => authRefresh(deps, opts));
 
   auth
-    .command('whoami')
-    .description('Print the active context and token freshness')
-    .option('--context <name>', 'context name override')
-    .action((opts: WhoamiOpts) => authWhoami(deps, opts));
-
-  auth
-    .command('logout')
-    .description('Discard tokens for the active context')
-    .option('--context <name>', 'context name override')
-    .action((opts: LogoutOpts) => authLogout(deps, opts));
+    .command('token')
+    .description('Print the stored access and refresh tokens (for debugging)')
+    .option('--client-secret-stdin', 'refresh first, then print')
+    .action((opts: RefreshOpts) => authToken(deps, opts));
 }

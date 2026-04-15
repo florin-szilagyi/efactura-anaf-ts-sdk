@@ -7,12 +7,12 @@ import {
   type EfacturaToolsClientFactory,
   type TokenManagerFactory,
 } from '../../src/services/efacturaService';
-import { AuthService } from '../../src/services/authService';
-import { ContextService, TokenStore } from '../../src/state';
+import { CompanyService, CredentialService, ConfigStore, TokenStore } from '../../src/state';
 import { getXdgPaths } from '../../src/state/paths';
 import { CliError } from '../../src/output/errors';
-import type { Context } from '../../src/state';
+import type { LookupService } from '../../src/services/lookupService';
 import type {
+  AnafCompanyData,
   UploadResponse,
   StatusResponse,
   ListMessagesResponse,
@@ -72,9 +72,10 @@ class FakeToolsClient {
 
 interface Harness {
   dir: string;
-  contextService: ContextService;
+  companyService: CompanyService;
+  credentialService: CredentialService;
+  configStore: ConfigStore;
   tokenStore: TokenStore;
-  authService: AuthService;
   service: EfacturaService;
   fakeClient: FakeEfacturaClient;
   fakeTools: FakeToolsClient;
@@ -83,6 +84,7 @@ interface Harness {
 
 function harness(overrides?: {
   tokenRotate?: boolean;
+  tokenManagerFactory?: TokenManagerFactory;
   clientFactory?: EfacturaClientFactory;
   toolsFactory?: EfacturaToolsClientFactory;
 }): Harness {
@@ -92,39 +94,34 @@ function harness(overrides?: {
     dataHome: path.join(dir, 'data'),
     cacheHome: path.join(dir, 'cache'),
   });
-  const contextService = new ContextService({ paths });
+  const companyService = new CompanyService({ paths });
+  const credentialService = new CredentialService({ paths });
+  const configStore = new ConfigStore({ paths });
   const tokenStore = new TokenStore({ paths });
-  const authService = new AuthService({
-    contextService,
-    tokenStore,
-    authenticatorFactory: () => ({}) as never,
-  });
 
   const fakeClient = new FakeEfacturaClient();
   const fakeTools = new FakeToolsClient();
 
   let lastTokenManager: FakeTokenManager | undefined;
-  const tokenManagerFactory: TokenManagerFactory = ({ refreshToken }) => {
+  const defaultTokenManagerFactory: TokenManagerFactory = ({ refreshToken }) => {
     const tm = new FakeTokenManager(refreshToken);
     if (overrides?.tokenRotate) {
       tm.rotate = true;
-      // Eagerly rotate so the service's finally block sees a changed
-      // refresh token without requiring the fake SDK client to call
-      // getValidAccessToken().
       void tm.getValidAccessToken();
     }
     lastTokenManager = tm;
     return tm;
   };
+  const tokenManagerFactory = overrides?.tokenManagerFactory ?? defaultTokenManagerFactory;
 
   const clientFactory: EfacturaClientFactory = overrides?.clientFactory ?? (() => fakeClient as unknown as never);
-
   const toolsFactory: EfacturaToolsClientFactory = overrides?.toolsFactory ?? (() => fakeTools as unknown as never);
 
   const service = new EfacturaService({
-    contextService,
+    companyService,
+    credentialService,
+    configStore,
     tokenStore,
-    authService,
     tokenManagerFactory,
     clientFactory,
     toolsFactory,
@@ -132,9 +129,10 @@ function harness(overrides?: {
 
   return {
     dir,
-    contextService,
+    companyService,
+    credentialService,
+    configStore,
     tokenStore,
-    authService,
     service,
     fakeClient,
     fakeTools,
@@ -142,19 +140,25 @@ function harness(overrides?: {
   };
 }
 
-const sampleCtx = (): Context => ({
-  name: 'acme-prod',
-  companyCui: 'RO12345678',
-  environment: 'prod',
-  auth: { clientId: 'cid', redirectUri: 'https://localhost/cb' },
+const sampleCred = () => ({
+  clientId: 'cid',
+  redirectUri: 'https://localhost:9002/cb',
 });
+
+/** Set up the harness with a credential, active company, and token */
+function setupState(h: Harness, opts?: { cui?: string; env?: 'test' | 'prod' }): void {
+  const cui = opts?.cui ?? '12345678';
+  h.credentialService.set(sampleCred());
+  h.companyService.add({ cui, name: 'Acme SRL' });
+  h.configStore.setActiveCui(cui);
+  if (opts?.env) h.configStore.setEnv(opts.env);
+  h.tokenStore.write('_default', { refreshToken: 'rt-original' });
+}
 
 describe('EfacturaService.upload', () => {
   it('uploads via EfacturaClient and returns the SDK response', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt-original' });
+    setupState(h);
 
     const result = await h.service.upload({
       xml: '<xml/>',
@@ -168,9 +172,7 @@ describe('EfacturaService.upload', () => {
 
   it('calls uploadB2CDocument when isB2C is true', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt-original' });
+    setupState(h);
 
     const result = await h.service.upload({
       xml: '<xml/>',
@@ -185,52 +187,42 @@ describe('EfacturaService.upload', () => {
 
   it('persists rotated refresh token after a successful call', async () => {
     const h = harness({ tokenRotate: true });
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt-original' });
+    setupState(h);
 
     await h.service.upload({ xml: '<xml/>', clientSecret: 'secret-1' });
-    expect(h.tokenStore.read('acme-prod')?.refreshToken).toBe('rt-rotated');
+    expect(h.tokenStore.read('_default')?.refreshToken).toBe('rt-rotated');
   });
 
   it('persists rotated refresh token even when the operation fails', async () => {
-    // Build a harness whose clientFactory forces rotation BEFORE failure,
-    // then returns a client that rejects the upload call. This exercises
-    // the try/finally contract: the finally block must still persist the
-    // rotated refresh token even though the operation threw.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'anaf-cli-efactura-'));
     const paths = getXdgPaths({
       configHome: path.join(dir, 'config'),
       dataHome: path.join(dir, 'data'),
       cacheHome: path.join(dir, 'cache'),
     });
-    const contextService = new ContextService({ paths });
+    const companyService = new CompanyService({ paths });
+    const credentialService = new CredentialService({ paths });
+    const configStore = new ConfigStore({ paths });
     const tokenStore = new TokenStore({ paths });
-    const authService = new AuthService({
-      contextService,
-      tokenStore,
-      authenticatorFactory: () => ({}) as never,
-    });
-    contextService.add(sampleCtx());
-    contextService.setCurrent('acme-prod');
-    tokenStore.write('acme-prod', { refreshToken: 'rt-original' });
+
+    credentialService.set(sampleCred());
+    companyService.add({ cui: '12345678', name: 'Acme SRL' });
+    configStore.setActiveCui('12345678');
+    tokenStore.write('_default', { refreshToken: 'rt-original' });
 
     const fakeClient = new FakeEfacturaClient();
     fakeClient.uploadDocument.mockImplementationOnce(async () => {
-      // Simulate the SDK calling getValidAccessToken -> rotate -> then fail.
       throw new Error('upload boom');
     });
 
     const service = new EfacturaService({
-      contextService,
+      companyService,
+      credentialService,
+      configStore,
       tokenStore,
-      authService,
       tokenManagerFactory: ({ refreshToken }) => {
         const tm = new FakeTokenManager(refreshToken);
         tm.rotate = true;
-        // Simulate rotation happening during the op by pre-flipping the
-        // refresh token on the manager instance (as if getValidAccessToken
-        // had been called and rotation occurred).
         void tm.getValidAccessToken();
         return tm;
       },
@@ -239,25 +231,69 @@ describe('EfacturaService.upload', () => {
     });
 
     await expect(service.upload({ xml: '<xml/>', clientSecret: 'secret-1' })).rejects.toBeInstanceOf(CliError);
-    // Token was rotated (by getValidAccessToken) before the failure, must
-    // be persisted by the try/finally block.
-    expect(tokenStore.read('acme-prod')?.refreshToken).toBe('rt-rotated');
+    expect(tokenStore.read('_default')?.refreshToken).toBe('rt-rotated');
+  });
+
+  it('uses cached access token directly when it is fresh (no tokenManagerFactory call)', async () => {
+    let factoryCalled = false;
+    const h = harness({
+      tokenManagerFactory: (args) => {
+        factoryCalled = true;
+        return { async getValidAccessToken() { return 'at-from-factory'; }, getRefreshToken() { return args.refreshToken; } };
+      },
+    });
+    setupState(h);
+    // Write a token record with a valid access token well within the 1-day threshold
+    const farFuture = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days from now
+    h.tokenStore.write('_default', {
+      refreshToken: 'rt-stable',
+      accessToken: 'at-cached',
+      expiresAt: farFuture,
+      obtainedAt: new Date().toISOString(),
+    });
+
+    await h.service.upload({ xml: '<xml/>', clientSecret: 's' });
+    expect(factoryCalled).toBe(false);
+  });
+
+  it('falls through to tokenManagerFactory when access token is expiring within 1 day', async () => {
+    let factoryCalled = false;
+    const h = harness({
+      tokenManagerFactory: (args) => {
+        factoryCalled = true;
+        return { async getValidAccessToken() { return 'at-fresh'; }, getRefreshToken() { return args.refreshToken; } };
+      },
+    });
+    setupState(h);
+    // Write a token that expires in 12 hours (within the 1-day window)
+    const almostExpired = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+    h.tokenStore.write('_default', {
+      refreshToken: 'rt-stable',
+      accessToken: 'at-expiring',
+      expiresAt: almostExpired,
+      obtainedAt: new Date().toISOString(),
+    });
+
+    await h.service.upload({ xml: '<xml/>', clientSecret: 's' });
+    expect(factoryCalled).toBe(true);
   });
 
   it('does not write when the refresh token did not rotate', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt-stable' });
+    setupState(h);
+    // Overwrite with a known stable token
+    h.tokenStore.write('_default', { refreshToken: 'rt-stable' });
 
     await h.service.upload({ xml: '<xml/>', clientSecret: 's' });
-    expect(h.tokenStore.read('acme-prod')?.refreshToken).toBe('rt-stable');
+    expect(h.tokenStore.read('_default')?.refreshToken).toBe('rt-stable');
   });
 
   it('throws CliError(auth, NO_REFRESH_TOKEN) when no token is persisted', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
+    h.credentialService.set(sampleCred());
+    h.companyService.add({ cui: '12345678', name: 'Acme SRL' });
+    h.configStore.setActiveCui('12345678');
+    // Do NOT write a token
     let err: unknown;
     try {
       await h.service.upload({ xml: '<xml/>', clientSecret: 's' });
@@ -271,9 +307,7 @@ describe('EfacturaService.upload', () => {
 
   it('wraps SDK upload failure as UPLOAD_FAILED', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     h.fakeClient.uploadDocument.mockRejectedValueOnce(new Error('network boom'));
     let err: unknown;
     try {
@@ -288,9 +322,7 @@ describe('EfacturaService.upload', () => {
 
   it('forwards UploadOptions to the SDK', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     await h.service.upload({
       xml: '<xml/>',
       clientSecret: 's',
@@ -299,65 +331,50 @@ describe('EfacturaService.upload', () => {
     expect(h.fakeClient.uploadDocument).toHaveBeenCalledWith('<xml/>', { extern: true });
   });
 
-  it('prefixes companyCui with RO when missing', async () => {
+  it('passes numeric CUI as vatNumber (strips RO prefix)', async () => {
     const h = harness({
       clientFactory: (args) => {
-        expect(args.vatNumber).toBe('RO12345678');
+        expect(args.vatNumber).toBe('12345678');
         return new FakeEfacturaClient() as unknown as never;
       },
     });
-    h.contextService.add({
-      name: 'acme-prod',
-      companyCui: '12345678',
-      environment: 'prod',
-      auth: { clientId: 'cid', redirectUri: 'https://localhost/cb' },
-    });
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h, { cui: '12345678' });
     await h.service.upload({ xml: '<xml/>', clientSecret: 's' });
   });
 
-  it('does not double-prefix companyCui that already starts with RO', async () => {
+  it('strips RO prefix from CUI before passing as vatNumber', async () => {
     const h = harness({
       clientFactory: (args) => {
-        expect(args.vatNumber).toBe('RO12345678');
+        expect(args.vatNumber).toBe('12345678');
         return new FakeEfacturaClient() as unknown as never;
       },
     });
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    h.credentialService.set(sampleCred());
+    h.companyService.add({ cui: 'RO12345678', name: 'Acme SRL' });
+    h.configStore.setActiveCui('RO12345678');
+    h.tokenStore.write('_default', { refreshToken: 'rt' });
     await h.service.upload({ xml: '<xml/>', clientSecret: 's' });
   });
 
-  it('derives testMode=true from environment=test', async () => {
+  it('derives testMode=true from env=test', async () => {
     const h = harness({
       clientFactory: (args) => {
         expect(args.testMode).toBe(true);
         return new FakeEfacturaClient() as unknown as never;
       },
     });
-    h.contextService.add({
-      name: 'acme-test',
-      companyCui: 'RO12345678',
-      environment: 'test',
-      auth: { clientId: 'cid', redirectUri: 'https://localhost/cb' },
-    });
-    h.contextService.setCurrent('acme-test');
-    h.tokenStore.write('acme-test', { refreshToken: 'rt' });
+    setupState(h, { env: 'test' });
     await h.service.upload({ xml: '<xml/>', clientSecret: 's' });
   });
 
-  it('derives testMode=false from environment=prod', async () => {
+  it('derives testMode=false from env=prod', async () => {
     const h = harness({
       clientFactory: (args) => {
         expect(args.testMode).toBe(false);
         return new FakeEfacturaClient() as unknown as never;
       },
     });
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h, { env: 'prod' });
     await h.service.upload({ xml: '<xml/>', clientSecret: 's' });
   });
 });
@@ -365,9 +382,7 @@ describe('EfacturaService.upload', () => {
 describe('EfacturaService.getStatus', () => {
   it('returns the SDK status and calls the SDK with the uploadId', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     const result = await h.service.getStatus({ uploadId: 'upload-1', clientSecret: 's' });
     expect(result.stare).toBe('ok');
     expect(h.fakeClient.getUploadStatus).toHaveBeenCalledWith('upload-1');
@@ -375,9 +390,7 @@ describe('EfacturaService.getStatus', () => {
 
   it('wraps SDK status failure as STATUS_FAILED', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     h.fakeClient.getUploadStatus.mockRejectedValueOnce(new Error('boom'));
     let err: unknown;
     try {
@@ -394,9 +407,7 @@ describe('EfacturaService.getStatus', () => {
 describe('EfacturaService.download', () => {
   it('decodes the base64 payload to a Buffer', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     const buf = await h.service.download({ downloadId: 'download-1', clientSecret: 's' });
     expect(Buffer.isBuffer(buf)).toBe(true);
     expect(buf.toString('utf8')).toBe('fake-zip');
@@ -404,9 +415,7 @@ describe('EfacturaService.download', () => {
 
   it('wraps SDK download failure as DOWNLOAD_FAILED', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     h.fakeClient.downloadDocument.mockRejectedValueOnce(new Error('boom'));
     let err: unknown;
     try {
@@ -422,9 +431,7 @@ describe('EfacturaService.download', () => {
 describe('EfacturaService.getMessages', () => {
   it('routes to simple listing when days is set', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     await h.service.getMessages({ days: 7, clientSecret: 's' });
     expect(h.fakeClient.getMessages).toHaveBeenCalledWith({ zile: 7, filtru: undefined });
     expect(h.fakeClient.getMessagesPaginated).not.toHaveBeenCalled();
@@ -432,9 +439,7 @@ describe('EfacturaService.getMessages', () => {
 
   it('routes to paginated when start/end/page are set', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     await h.service.getMessages({
       startTime: 1000,
       endTime: 2000,
@@ -452,9 +457,7 @@ describe('EfacturaService.getMessages', () => {
 
   it('throws BAD_USAGE when neither pattern is satisfied', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     let err: unknown;
     try {
       await h.service.getMessages({ clientSecret: 's' });
@@ -468,9 +471,7 @@ describe('EfacturaService.getMessages', () => {
 
   it('throws BAD_USAGE on partial pagination inputs', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     let err: unknown;
     try {
       await h.service.getMessages({ startTime: 1, endTime: 2, clientSecret: 's' });
@@ -483,9 +484,7 @@ describe('EfacturaService.getMessages', () => {
 
   it('wraps SDK messages failure as MESSAGES_FAILED', async () => {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     h.fakeClient.getMessages.mockRejectedValueOnce(new Error('boom'));
     let err: unknown;
     try {
@@ -501,9 +500,7 @@ describe('EfacturaService.getMessages', () => {
 describe('EfacturaService tools', () => {
   function toolsHarness(): Harness {
     const h = harness();
-    h.contextService.add(sampleCtx());
-    h.contextService.setCurrent('acme-prod');
-    h.tokenStore.write('acme-prod', { refreshToken: 'rt' });
+    setupState(h);
     return h;
   }
 
@@ -590,5 +587,111 @@ describe('EfacturaService tools', () => {
     }
     expect(err).toBeInstanceOf(CliError);
     expect((err as CliError).code).toBe('PDF_CONVERSION_FAILED');
+  });
+});
+
+describe('EfacturaService message enrichment', () => {
+  function enrichHarness() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'anaf-cli-enrich-'));
+    const paths = getXdgPaths({
+      configHome: path.join(dir, 'config'),
+      dataHome: path.join(dir, 'data'),
+      cacheHome: path.join(dir, 'cache'),
+    });
+    const companyService = new CompanyService({ paths });
+    const credentialService = new CredentialService({ paths });
+    const configStore = new ConfigStore({ paths });
+    const tokenStore = new TokenStore({ paths });
+
+    const fakeClient = new FakeEfacturaClient();
+
+    const fakeLookup = {
+      batchGetCompanies: jest.fn(async (cuis: readonly string[]): Promise<AnafCompanyData[]> =>
+        cuis.map((cui) => ({
+          vatCode: cui,
+          name: `Company-${cui}`,
+          registrationNumber: '',
+          address: '',
+          postalCode: null,
+          contactPhone: '',
+          scpTva: false,
+        }))
+      ),
+    } as unknown as LookupService;
+
+    const service = new EfacturaService({
+      companyService,
+      credentialService,
+      configStore,
+      tokenStore,
+      lookupService: fakeLookup,
+      tokenManagerFactory: ({ refreshToken }) => new FakeTokenManager(refreshToken),
+      clientFactory: () => fakeClient as unknown as never,
+      toolsFactory: () => new FakeToolsClient() as unknown as never,
+    });
+
+    // Set up minimal state
+    credentialService.set({ clientId: 'cid', redirectUri: 'https://localhost:9002/cb' });
+    companyService.add({ cui: '111', name: 'Test' });
+    configStore.setActiveCui('111');
+    configStore.setEnv('test');
+    tokenStore.write('_default', {
+      accessToken: 'at',
+      refreshToken: 'rt',
+      obtainedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 999_999_999).toISOString(),
+    });
+
+    return { service, fakeClient, fakeLookup };
+  }
+
+  it('resolves both emitentName and beneficiarName', async () => {
+    const { service, fakeClient, fakeLookup } = enrichHarness();
+    fakeClient.getMessages.mockResolvedValueOnce({
+      mesaje: [
+        { id: '1', tip: 'FACTURA TRIMISA', data_creare: '202604131822', detalii: '',
+          cif_emitent: '111', cif_beneficiar: '222' },
+      ],
+    } as unknown as ListMessagesResponse);
+
+    const result = await service.getMessages({ days: 7, clientSecret: 's' });
+    const msgs = (result as ListMessagesResponse).mesaje!;
+    expect(msgs[0].emitentName).toBe('Company-111');
+    expect(msgs[0].beneficiarName).toBe('Company-222');
+    // Both CUIs resolved in a single batch call
+    expect(fakeLookup.batchGetCompanies).toHaveBeenCalledWith(['111', '222']);
+  });
+
+  it('deduplicates CUIs across messages', async () => {
+    const { service, fakeClient, fakeLookup } = enrichHarness();
+    fakeClient.getMessages.mockResolvedValueOnce({
+      mesaje: [
+        { id: '1', tip: 'FACTURA TRIMISA', data_creare: '202604131822', detalii: '',
+          cif_emitent: '111', cif_beneficiar: '222' },
+        { id: '2', tip: 'FACTURA PRIMITA', data_creare: '202604131822', detalii: '',
+          cif_emitent: '222', cif_beneficiar: '111' },
+      ],
+    } as unknown as ListMessagesResponse);
+
+    await service.getMessages({ days: 7, clientSecret: 's' });
+    const calledWith = (fakeLookup.batchGetCompanies as jest.Mock).mock.calls[0][0] as string[];
+    expect(calledWith.sort()).toEqual(['111', '222']);
+  });
+
+  it('gracefully degrades when lookup fails', async () => {
+    const { service, fakeClient, fakeLookup } = enrichHarness();
+    (fakeLookup.batchGetCompanies as jest.Mock).mockRejectedValueOnce(new Error('network'));
+    fakeClient.getMessages.mockResolvedValueOnce({
+      mesaje: [
+        { id: '1', tip: 'FACTURA TRIMISA', data_creare: '202604131822', detalii: '',
+          cif_emitent: '111', cif_beneficiar: '222' },
+      ],
+    } as unknown as ListMessagesResponse);
+
+    const result = await service.getMessages({ days: 7, clientSecret: 's' });
+    const msgs = (result as ListMessagesResponse).mesaje!;
+    // Returns un-enriched messages — no crash
+    expect(msgs[0].emitentName).toBeUndefined();
+    expect(msgs[0].beneficiarName).toBeUndefined();
   });
 });

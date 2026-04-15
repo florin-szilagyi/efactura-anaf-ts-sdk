@@ -16,6 +16,7 @@ export { writeBinary } from './binary';
 
 import * as textRenderer from './text';
 import * as jsonRenderer from './json';
+import * as yamlRenderer from './yaml';
 import type { CliError as CliErrorType } from './errors';
 import type { OutputContext } from './types';
 
@@ -24,12 +25,20 @@ export function renderSuccess<T>(ctx: OutputContext, data: T, humanText?: (data:
     jsonRenderer.renderSuccess(ctx, data);
     return;
   }
+  if (ctx.format === 'yaml') {
+    yamlRenderer.renderSuccess(ctx, data);
+    return;
+  }
   textRenderer.renderSuccess(ctx, data, humanText);
 }
 
 export function renderError(ctx: OutputContext, error: CliErrorType | Error): void {
   if (ctx.format === 'json') {
     jsonRenderer.renderError(ctx, error);
+    return;
+  }
+  if (ctx.format === 'yaml') {
+    yamlRenderer.renderError(ctx, error);
     return;
   }
   textRenderer.renderError(ctx, error);

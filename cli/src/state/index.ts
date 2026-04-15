@@ -1,18 +1,25 @@
 export type {
   Environment,
-  AuthConfig,
-  ContextDefaults,
-  Context,
-  CliConfigDefaults,
+  Credential,
+  Company,
   CliConfig,
+  CliConfigDefaults,
   TokenRecord,
 } from './types';
 
 export type { XdgPaths, XdgRoots } from './paths';
 export { defaultXdgPaths, getXdgPaths } from './paths';
 
-export { contextNameSchema, contextFileSchema, cliConfigSchema, tokenRecordSchema, type ContextFile } from './schemas';
+export {
+  credentialFileSchema,
+  companyFileSchema,
+  cliConfigSchema,
+  tokenRecordSchema,
+  type CredentialFile,
+  type CompanyFile,
+} from './schemas';
 
 export { ConfigStore } from './configStore';
-export { ContextService } from './contextService';
+export { CredentialService } from './credentialService';
+export { CompanyService } from './companyService';
 export { TokenStore } from './tokenStore';

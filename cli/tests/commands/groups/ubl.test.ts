@@ -7,6 +7,7 @@ import { CliError } from '../../../src/output/errors';
 import { makeOutputContext } from '../../../src/output';
 import { ublBuild, ublInspect } from '../../../src/commands/groups/ubl';
 import type { UblBuildAction, UblBuildResult } from '../../../src/services';
+import { getXdgPaths } from '../../../src/state';
 
 class Cap extends Writable {
   buf = '';
@@ -42,12 +43,22 @@ class StubUblService {
   }
 }
 
-class StubContextService {
-  lastResolveArg?: string;
-  resolve(explicit?: string): { name: string } {
-    this.lastResolveArg = explicit;
-    return { name: explicit ?? 'acme-prod' };
+class StubConfigStore {
+  activeCui: string | undefined = '12345678';
+  getActiveCui(): string | undefined {
+    return this.activeCui;
   }
+  setActiveCui(cui: string | undefined): void {
+    this.activeCui = cui;
+  }
+  getEnv(): 'test' | 'prod' {
+    return 'test';
+  }
+  setEnv(): void {}
+  read() {
+    return { activeCui: this.activeCui };
+  }
+  write() {}
 }
 
 function harness() {
@@ -56,9 +67,9 @@ function harness() {
   const text = makeOutputContext({ format: 'text', streams: { stdout, stderr } });
   const json = makeOutputContext({ format: 'json', streams: { stdout, stderr } });
   const ublService = new StubUblService();
-  const contextService = new StubContextService();
-  const services = { ublService, contextService } as never;
-  return { stdout, stderr, text, json, ublService, contextService, services };
+  const configStore = new StubConfigStore();
+  const services = { ublService, configStore } as never;
+  return { stdout, stderr, text, json, ublService, configStore, services };
 }
 
 describe('ubl group', () => {
@@ -66,6 +77,7 @@ describe('ubl group', () => {
     const program = buildProgram({
       output: makeOutputContext({ format: 'text' }),
       services: {} as never,
+      paths: getXdgPaths(),
     });
     const ubl = program.commands.find((c) => c.name() === 'ubl')!;
     expect(ubl.commands.map((c) => c.name()).sort()).toEqual(['build', 'inspect']);
@@ -75,12 +87,12 @@ describe('ubl group', () => {
     const program = buildProgram({
       output: makeOutputContext({ format: 'text' }),
       services: {} as never,
+      paths: getXdgPaths(),
     });
     const ubl = program.commands.find((c) => c.name() === 'ubl')!;
     const build = ubl.commands.find((c) => c.name() === 'build')!;
     const lineOpt = build.options.find((o) => o.long === '--line')!;
     expect(lineOpt).toBeDefined();
-    // commander stores the default; the collector will append on subsequent uses.
     expect(Array.isArray(lineOpt.defaultValue)).toBe(true);
   });
 });
@@ -89,9 +101,8 @@ describe('ublBuild', () => {
   it('builds an action from flags and writes XML to stdout', async () => {
     const h = harness();
     await ublBuild(
-      { output: h.text, services: h.services },
+      { output: h.text, services: h.services, paths: getXdgPaths() },
       {
-        context: 'acme-prod',
         invoiceNumber: 'FCT-1',
         issueDate: '2026-04-11',
         customerCui: 'RO87654321',
@@ -102,24 +113,23 @@ describe('ublBuild', () => {
     expect(h.stdout.buf).toContain('Invoice');
     expect(h.ublService.lastAction?.invoice.invoiceNumber).toBe('FCT-1');
     expect(h.ublService.lastAction?.invoice.lines).toHaveLength(1);
-    expect(h.ublService.lastAction?.context).toBe('acme-prod');
-    expect(h.contextService.lastResolveArg).toBe('acme-prod');
+    // context is the active CUI from configStore
+    expect(h.ublService.lastAction?.context).toBe('12345678');
   });
 
-  it('resolves the current context when --context is omitted', async () => {
+  it('uses the active CUI as context', async () => {
     const h = harness();
+    h.configStore.activeCui = '99999999';
     await ublBuild(
-      { output: h.text, services: h.services },
+      { output: h.text, services: h.services, paths: getXdgPaths() },
       {
-        invoiceNumber: 'FCT-NOCTX',
+        invoiceNumber: 'FCT-CUI',
         issueDate: '2026-04-11',
         customerCui: 'RO87654321',
         line: ['x|1|100|19'],
       }
     );
-    // Stub returns 'acme-prod' when called with undefined
-    expect(h.contextService.lastResolveArg).toBeUndefined();
-    expect(h.ublService.lastAction?.context).toBe('acme-prod');
+    expect(h.ublService.lastAction?.context).toBe('99999999');
   });
 
   it('writes XML to --out and emits confirmation to stderr', async () => {
@@ -128,9 +138,8 @@ describe('ublBuild', () => {
     const outPath = path.join(tmp, 'invoice.xml');
     try {
       await ublBuild(
-        { output: h.text, services: h.services },
+        { output: h.text, services: h.services, paths: getXdgPaths() },
         {
-          context: 'acme-prod',
           invoiceNumber: 'FCT-1',
           issueDate: '2026-04-11',
           customerCui: 'RO87654321',
@@ -149,9 +158,8 @@ describe('ublBuild', () => {
   it('JSON mode emits an envelope with the xml string', async () => {
     const h = harness();
     await ublBuild(
-      { output: h.json, services: h.services },
+      { output: h.json, services: h.services, paths: getXdgPaths() },
       {
-        context: 'acme-prod',
         invoiceNumber: 'FCT-1',
         issueDate: '2026-04-11',
         customerCui: 'RO87654321',
@@ -172,9 +180,8 @@ describe('ublBuild', () => {
     const outPath = path.join(tmp, 'invoice.xml');
     try {
       await ublBuild(
-        { output: h.json, services: h.services },
+        { output: h.json, services: h.services, paths: getXdgPaths() },
         {
-          context: 'acme-prod',
           invoiceNumber: 'FCT-1',
           issueDate: '2026-04-11',
           customerCui: 'RO87654321',
@@ -193,9 +200,8 @@ describe('ublBuild', () => {
   it('merges override flags into the action', async () => {
     const h = harness();
     await ublBuild(
-      { output: h.text, services: h.services },
+      { output: h.text, services: h.services, paths: getXdgPaths() },
       {
-        context: 'acme-prod',
         invoiceNumber: 'FCT-2',
         issueDate: '2026-04-11',
         customerCui: 'RO87654321',
@@ -220,14 +226,14 @@ describe('ublBuild', () => {
       fs.writeFileSync(
         inputPath,
         JSON.stringify({
-          context: 'acme-prod',
+          context: 'RO12345678',
           invoiceNumber: 'FCT-JSON',
           issueDate: '2026-04-11',
           customerCui: 'RO87654321',
           lines: ['Service|2|50|19'],
         })
       );
-      await ublBuild({ output: h.text, services: h.services }, { fromJson: inputPath });
+      await ublBuild({ output: h.text, services: h.services, paths: getXdgPaths() }, { fromJson: inputPath });
       expect(h.ublService.lastAction?.invoice.invoiceNumber).toBe('FCT-JSON');
       expect(h.ublService.lastAction?.invoice.lines).toHaveLength(1);
     } finally {
@@ -242,17 +248,18 @@ describe('ublBuild', () => {
       const inputPath = path.join(tmp, 'invoice.yaml');
       fs.writeFileSync(
         inputPath,
-        'context: acme-prod\ninvoiceNumber: FCT-YAML\nissueDate: 2026-04-11\ncustomerCui: RO87654321\nlines:\n  - "Service|1|100|19"\n'
+        'context: RO12345678\ninvoiceNumber: FCT-YAML\nissueDate: 2026-04-11\ncustomerCui: RO87654321\nlines:\n  - "Service|1|100|19"\n'
       );
-      await ublBuild({ output: h.text, services: h.services }, { fromYaml: inputPath });
+      await ublBuild({ output: h.text, services: h.services, paths: getXdgPaths() }, { fromYaml: inputPath });
       expect(h.ublService.lastAction?.invoice.invoiceNumber).toBe('FCT-YAML');
     } finally {
       fs.rmSync(tmp, { recursive: true });
     }
   });
 
-  it('--context overrides the context field on a loaded file', async () => {
+  it('active CUI overrides the context field on a loaded file', async () => {
     const h = harness();
+    h.configStore.activeCui = '99999999';
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'anaf-cli-ubl-'));
     try {
       const inputPath = path.join(tmp, 'invoice.json');
@@ -266,8 +273,9 @@ describe('ublBuild', () => {
           lines: ['x|1|100|19'],
         })
       );
-      await ublBuild({ output: h.text, services: h.services }, { fromJson: inputPath, context: 'acme-prod' });
-      expect(h.ublService.lastAction?.context).toBe('acme-prod');
+      await ublBuild({ output: h.text, services: h.services, paths: getXdgPaths() }, { fromJson: inputPath });
+      // The active CUI from configStore always overrides the file's context
+      expect(h.ublService.lastAction?.context).toBe('99999999');
     } finally {
       fs.rmSync(tmp, { recursive: true });
     }
@@ -280,7 +288,7 @@ describe('ublBuild', () => {
       const inputPath = path.join(tmp, 'invoice.json');
       fs.writeFileSync(inputPath, '{}');
       await expect(
-        ublBuild({ output: h.text, services: h.services }, { fromJson: inputPath, invoiceNumber: 'FCT-X' })
+        ublBuild({ output: h.text, services: h.services, paths: getXdgPaths() }, { fromJson: inputPath, invoiceNumber: 'FCT-X' })
       ).rejects.toBeInstanceOf(CliError);
     } finally {
       fs.rmSync(tmp, { recursive: true });
@@ -295,15 +303,14 @@ describe('ublBuild', () => {
       fs.writeFileSync(
         inputPath,
         JSON.stringify({
-          context: 'acme-prod',
+          context: 'RO12345678',
           invoiceNumber: 'FCT-OK',
           issueDate: '2026-04-11',
           customerCui: 'RO87654321',
           lines: ['x|1|100|19'],
         })
       );
-      // Commander's default is [] — should NOT count as "flags supplied"
-      await ublBuild({ output: h.text, services: h.services }, { fromJson: inputPath, line: [] });
+      await ublBuild({ output: h.text, services: h.services, paths: getXdgPaths() }, { fromJson: inputPath, line: [] });
       expect(h.ublService.lastAction?.invoice.invoiceNumber).toBe('FCT-OK');
     } finally {
       fs.rmSync(tmp, { recursive: true });
@@ -312,7 +319,7 @@ describe('ublBuild', () => {
 
   it('throws BAD_USAGE when required flags are missing', async () => {
     const h = harness();
-    await expect(ublBuild({ output: h.text, services: h.services }, {})).rejects.toBeInstanceOf(CliError);
+    await expect(ublBuild({ output: h.text, services: h.services, paths: getXdgPaths() }, {})).rejects.toBeInstanceOf(CliError);
   });
 });
 
@@ -326,9 +333,10 @@ describe('ublInspect', () => {
         xmlPath,
         '<?xml version="1.0"?><Invoice><ID>FCT-1</ID><IssueDate>2026-04-11</IssueDate></Invoice>'
       );
-      await ublInspect({ output: h.text, services: h.services }, { xml: xmlPath });
-      expect(h.stdout.buf).toContain('root: Invoice');
-      expect(h.stdout.buf).toContain('size:');
+      await ublInspect({ output: h.text, services: h.services, paths: getXdgPaths() }, { xml: xmlPath });
+      expect(h.stdout.buf).toContain('Root element');
+      expect(h.stdout.buf).toContain('Invoice');
+      expect(h.stdout.buf).toContain('Size');
     } finally {
       fs.rmSync(tmp, { recursive: true });
     }
@@ -340,7 +348,7 @@ describe('ublInspect', () => {
     try {
       const xmlPath = path.join(tmp, 'sample.xml');
       fs.writeFileSync(xmlPath, '<?xml version="1.0"?><Invoice><ID>x</ID></Invoice>');
-      await ublInspect({ output: h.json, services: h.services }, { xml: xmlPath });
+      await ublInspect({ output: h.json, services: h.services, paths: getXdgPaths() }, { xml: xmlPath });
       const parsed = JSON.parse(h.stdout.buf);
       expect(parsed.data.rootElement).toBe('Invoice');
       expect(Array.isArray(parsed.data.firstElementNames)).toBe(true);
@@ -351,6 +359,6 @@ describe('ublInspect', () => {
 
   it('throws BAD_USAGE when --xml is missing', async () => {
     const h = harness();
-    await expect(ublInspect({ output: h.text, services: h.services }, {})).rejects.toBeInstanceOf(CliError);
+    await expect(ublInspect({ output: h.text, services: h.services, paths: getXdgPaths() }, {})).rejects.toBeInstanceOf(CliError);
   });
 });

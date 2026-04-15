@@ -3,7 +3,7 @@ import path from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { CliError } from '../output/errors';
 import { cliConfigSchema } from './schemas';
-import type { CliConfig } from './types';
+import type { CliConfig, Environment } from './types';
 import { getXdgPaths, type XdgPaths } from './paths';
 
 export class ConfigStore {
@@ -47,17 +47,26 @@ export class ConfigStore {
     fs.writeFileSync(this.paths.configFile, stringifyYaml(validated), 'utf8');
   }
 
-  getCurrentContext(): string | undefined {
-    return this.read().currentContext;
+  getActiveCui(): string | undefined {
+    return this.read().activeCui;
   }
 
-  setCurrentContext(name: string | undefined): void {
+  setActiveCui(cui: string | undefined): void {
     const current = this.read();
-    if (name === undefined) {
-      const { currentContext: _drop, ...rest } = current;
+    if (cui === undefined) {
+      const { activeCui: _drop, ...rest } = current;
       this.write(rest);
       return;
     }
-    this.write({ ...current, currentContext: name });
+    this.write({ ...current, activeCui: cui });
+  }
+
+  getEnv(): Environment {
+    return this.read().env ?? 'test';
+  }
+
+  setEnv(env: Environment): void {
+    const current = this.read();
+    this.write({ ...current, env });
   }
 }

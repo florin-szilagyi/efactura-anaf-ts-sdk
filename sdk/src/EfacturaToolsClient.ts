@@ -1,6 +1,6 @@
 import { EfacturaToolsConfig, DocumentStandardType, ValidationResult } from './types';
 import { AnafValidationError, AnafApiError } from './errors';
-import { getBasePath, DEFAULT_TIMEOUT } from './constants';
+import { getBasePath, BASE_PATH_OAUTH_PROD, DEFAULT_TIMEOUT } from './constants';
 import { parseJsonResponse } from './utils/xmlParser';
 import { HttpClient } from './utils/httpClient';
 import { handleApiError } from './utils/errorHandler';
@@ -15,7 +15,7 @@ import { TokenManager } from './TokenManager';
  *
  * @example
  * ```typescript
- * import { EfacturaToolsClient, TokenManager, AnafAuthenticator } from 'efactura-ts-sdk';
+ * import { EfacturaToolsClient, TokenManager, AnafAuthenticator } from 'anaf-ts-sdk';
  *
  * const authenticator = new AnafAuthenticator({ clientId, clientSecret, redirectUri });
  * const tokenManager = new TokenManager(authenticator, refreshToken);
@@ -51,11 +51,15 @@ export class EfacturaToolsClient {
     this.validateXmlContent(xmlContent);
     this.validateDocumentStandard(standard);
 
-    const url = `/validare/${standard}`;
+    // ANAF's validate endpoint only exists on the prod OAuth API.
+    // Test environment does not expose /validare — schema validation
+    // is environment-agnostic, so we always target prod.
+    const url = `validare/${standard}`;
 
     const { data, error } = await tryCatch(async () => {
       const accessToken = await this.tokenManager.getValidAccessToken();
       const response = await this.httpClient.post(url, xmlContent, {
+        baseURL: BASE_PATH_OAUTH_PROD,
         headers: {
           'Content-Type': 'text/plain',
           Authorization: `Bearer ${accessToken}`,
@@ -86,7 +90,8 @@ export class EfacturaToolsClient {
     xmlFileName?: string,
     signatureFileName?: string
   ): Promise<ValidationResult> {
-    const url = `/api/validate/signature`;
+    // Same as validateXml — signature validation only available on prod OAuth API.
+    const url = `api/validate/signature`;
 
     const formData = new FormData();
 
@@ -117,6 +122,7 @@ export class EfacturaToolsClient {
     const { data, error } = await tryCatch(async () => {
       const accessToken = await this.tokenManager.getValidAccessToken();
       const response = await this.httpClient.post(url, formData, {
+        baseURL: BASE_PATH_OAUTH_PROD,
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
@@ -144,7 +150,7 @@ export class EfacturaToolsClient {
     this.validateXmlContent(xmlContent);
     this.validateDocumentStandard(standard);
 
-    const url = `/transformare/${standard}`;
+    const url = `transformare/${standard}`;
     return this.performPdfConversion(url, xmlContent, 'Failed to convert XML to PDF');
   }
 
@@ -152,7 +158,7 @@ export class EfacturaToolsClient {
     this.validateXmlContent(xmlContent);
     this.validateDocumentStandard(standard);
 
-    const url = `/transformare/${standard}/DA`;
+    const url = `transformare/${standard}/DA`;
     return this.performPdfConversion(url, xmlContent, 'Failed to convert XML to PDF without validation');
   }
 
@@ -164,6 +170,7 @@ export class EfacturaToolsClient {
     const { data, error } = await tryCatch(async () => {
       const accessToken = await this.tokenManager.getValidAccessToken();
       const response = await this.httpClient.post(url, xmlContent, {
+        baseURL: BASE_PATH_OAUTH_PROD,
         headers: {
           'Content-Type': 'text/plain',
           Authorization: `Bearer ${accessToken}`,

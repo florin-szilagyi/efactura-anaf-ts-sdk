@@ -4,16 +4,17 @@ import { parse as parseYaml } from 'yaml';
 import type { CommandDeps } from '../buildProgram';
 import { CliError } from '../../output/errors';
 import { renderSuccess } from '../../output';
+import { kv } from '../../output/format';
 import { normalizeUblBuildAction, type UblBuildInput } from '../../actions';
 
 interface UblBuildCmdOpts {
-  context?: string;
   invoiceNumber?: string;
   issueDate?: string;
   dueDate?: string;
   customerCui?: string;
   line?: string[];
   currency?: string;
+  taxCurrencyTaxAmount?: string;
   paymentIban?: string;
   note?: string;
   out?: string;
@@ -110,7 +111,22 @@ function loadInputFile(fromJson?: string, fromYaml?: string): UblBuildInput | un
   return undefined;
 }
 
-function buildInputFromFlags(opts: UblBuildCmdOpts, resolvedContext: string): UblBuildInput {
+/**
+ * Resolve the active company CUI to use as the supplier context.
+ */
+function resolveActiveCui(deps: CommandDeps): string {
+  const activeCui = deps.services.configStore.getActiveCui();
+  if (!activeCui) {
+    throw new CliError({
+      code: 'NO_ACTIVE_COMPANY',
+      message: 'No active company. Run `anaf-cli auth login <CUI>` or `anaf-cli auth use <CUI>` first.',
+      category: 'local_state',
+    });
+  }
+  return activeCui;
+}
+
+function buildInputFromFlags(opts: UblBuildCmdOpts, supplierCui: string): UblBuildInput {
   const missing: string[] = [];
   if (!opts.invoiceNumber) missing.push('--invoice-number');
   if (!opts.issueDate) missing.push('--issue-date');
@@ -125,13 +141,14 @@ function buildInputFromFlags(opts: UblBuildCmdOpts, resolvedContext: string): Ub
     });
   }
   return {
-    context: resolvedContext,
+    context: supplierCui,
     invoiceNumber: opts.invoiceNumber!,
     issueDate: opts.issueDate!,
     dueDate: opts.dueDate,
     customerCui: opts.customerCui!,
     lines: opts.line!,
     currency: opts.currency,
+    taxCurrencyTaxAmount: opts.taxCurrencyTaxAmount !== undefined ? parseFloat(opts.taxCurrencyTaxAmount) : undefined,
     paymentIban: opts.paymentIban,
     note: opts.note,
     overrides: buildOverridesFromFlags(opts),
@@ -140,13 +157,7 @@ function buildInputFromFlags(opts: UblBuildCmdOpts, resolvedContext: string): Ub
 }
 
 export async function ublBuild(deps: CommandDeps, opts: UblBuildCmdOpts): Promise<void> {
-  // Resolve the context name through the context service BEFORE building the
-  // input — the zod schema requires a non-empty name, and `UblService` later
-  // re-resolves this name through `contextService.resolve(action.context)`
-  // which enforces the context-name regex. Passing a placeholder like
-  // `'(current)'` would fail both schemas, so we substitute the real name up
-  // front.
-  const resolvedContext = deps.services.contextService.resolve(opts.context).name;
+  const supplierCui = resolveActiveCui(deps);
 
   const fromFile = loadInputFile(opts.fromJson, opts.fromYaml);
   if (fromFile) {
@@ -164,13 +175,11 @@ export async function ublBuild(deps: CommandDeps, opts: UblBuildCmdOpts): Promis
     }
   }
 
-  const input = fromFile ?? buildInputFromFlags(opts, resolvedContext);
+  const input = fromFile ?? buildInputFromFlags(opts, supplierCui);
 
-  // When loading from a file, honor an explicit --context flag as an override
-  // on the loaded `context` field. If --context wasn't passed, the loaded
-  // value is kept as-is (and validated by the normalizer + ublService).
-  if (fromFile && opts.context) {
-    input.context = resolvedContext;
+  // When loading from a file, use the active company CUI as context
+  if (fromFile) {
+    input.context = supplierCui;
   }
   // Honor --out even when loading from file
   if (opts.out) {
@@ -182,7 +191,7 @@ export async function ublBuild(deps: CommandDeps, opts: UblBuildCmdOpts): Promis
 
   const xmlPath = action.output.mode === 'file' ? (action.output.path ?? null) : null;
 
-  if (deps.output.format === 'json') {
+  if (deps.output.format !== 'text') {
     const data = {
       invoiceNumber: action.invoice.invoiceNumber,
       xmlLength: result.xml.length,
@@ -203,8 +212,6 @@ export async function ublBuild(deps: CommandDeps, opts: UblBuildCmdOpts): Promis
     return;
   }
 
-  // Raw XML to stdout — do NOT use renderSuccess because the XML is not a
-  // JSON value and the default success renderer would JSON.stringify it.
   deps.output.streams.stdout.write(result.xml);
   if (!result.xml.endsWith('\n')) {
     deps.output.streams.stdout.write('\n');
@@ -230,10 +237,13 @@ export async function ublInspect(deps: CommandDeps, opts: UblInspectCmdOpts): Pr
     rootElement: rootMatch?.[1] ?? null,
     firstElementNames: firstElements,
   };
-  renderSuccess(
-    deps.output,
-    data,
-    (d) => `${d.path}\nsize: ${d.size}\nroot: ${d.rootElement}\nfirst elements: ${d.firstElementNames.join(', ')}`
+  renderSuccess(deps.output, data, (d) =>
+    kv([
+      ['Path', d.path],
+      ['Size', String(d.size)],
+      ['Root element', d.rootElement ?? '(none)'],
+      ['First elements', d.firstElementNames.join(', ')],
+    ])
   );
 }
 
@@ -247,13 +257,13 @@ export function registerUbl(parent: Command, deps: CommandDeps): void {
   ubl
     .command('build')
     .description('Build a UBL invoice from flags or a structured input file')
-    .option('--context <name>', 'context name override')
     .option('--invoice-number <n>', 'invoice number')
     .option('--issue-date <date>', 'issue date (YYYY-MM-DD)')
     .option('--due-date <date>', 'due date (YYYY-MM-DD)')
     .option('--customer-cui <cui>', 'customer CUI')
     .option('--line <line>', 'invoice line: "desc|qty|unitPrice|taxPct[|unitCode]"', collectLine, [] as string[])
     .option('--currency <code>', 'currency code')
+    .option('--tax-currency-tax-amount <amount>', 'total VAT in RON (required when --currency is not RON, CIUS-RO BR-53)')
     .option('--payment-iban <iban>', 'payment IBAN')
     .option('--note <text>', 'free-form note')
     .option('--out <path>', 'output XML file path')

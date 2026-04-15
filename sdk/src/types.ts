@@ -148,21 +148,69 @@ export interface PaginatedMessagesParams {
 }
 
 /**
- * Individual message details matching OpenAPI EfacturaDetailedMessage schema
+ * Raw message shape returned by the ANAF API (not exported).
+ * EfacturaClient transforms this into the public `MessageDetails`.
+ */
+export interface RawMessageDetails {
+  id_solicitare: string;
+  tip: string;
+  data_creare: string;
+  id: string;
+  detalii: string;
+  cif: string;
+}
+
+/** Raw simple list response (for deserialization before transformation) */
+export interface RawListMessagesResponse {
+  mesaje?: RawMessageDetails[];
+  eroare?: string;
+  serial?: string;
+  cui?: string;
+  titlu?: string;
+  info?: string;
+  eroare_descarcare?: string;
+}
+
+/** Raw paginated list response (for deserialization before transformation) */
+export interface RawPaginatedListMessagesResponse {
+  mesaje?: RawMessageDetails[];
+  numar_inregistrari_in_pagina?: number;
+  numar_total_inregistrari_per_pagina?: number;
+  numar_total_inregistrari?: number;
+  numar_total_pagini?: number;
+  index_pagina_curenta?: number;
+  serial?: string;
+  cui?: string;
+  titlu?: string;
+  eroare?: string;
+}
+
+/**
+ * Individual message details — cleaned-up version of the ANAF response.
+ *
+ * Redundant raw fields (`id_solicitare`, `cif`) are replaced by their
+ * parsed equivalents (`id_incarcare`, `cif_beneficiar`) extracted from
+ * the `detalii` string.
  */
 export interface MessageDetails {
-  /** Request ID */
-  id_solicitare: string;
-  /** Message type */
-  tip: string;
-  /** Creation date */
-  data_creare: string;
   /** Download ID */
   id: string;
-  /** Message details */
+  /** Message type (e.g. "FACTURA PRIMITA", "FACTURA TRIMISA", "ERORI FACTURA") */
+  tip: string;
+  /** Creation date (format: YYYYMMDDHHmm) */
+  data_creare: string;
+  /** Raw details string from ANAF */
   detalii: string;
-  /** CIF number (required as per OpenAPI examples) */
-  cif: string;
+  /** Upload/request ID (parsed from detalii) */
+  id_incarcare?: string;
+  /** Emitter CUI (parsed from detalii) */
+  cif_emitent?: string;
+  /** Beneficiary CUI (parsed from detalii) */
+  cif_beneficiar?: string;
+  /** Emitter company name (resolved via ANAF public API lookup) */
+  emitentName?: string;
+  /** Beneficiary company name (resolved via ANAF public API lookup) */
+  beneficiarName?: string;
 }
 
 /**
@@ -304,6 +352,13 @@ export interface InvoiceInput {
   paymentIban?: string;
   /** Whether supplier is VAT registered */
   isSupplierVatPayer?: boolean;
+  /**
+   * Total VAT amount in the accounting currency (RON) when the invoice currency is not RON.
+   * Required by CIUS-RO BR-53 / BT-111: if TaxCurrencyCode (BT-6) is present, the total VAT
+   * in accounting currency must also be provided. The caller is responsible for applying the
+   * applicable exchange rate.
+   */
+  taxCurrencyTaxAmount?: number;
 }
 
 /**

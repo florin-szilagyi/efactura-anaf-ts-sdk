@@ -1,42 +1,98 @@
-import { contextNameSchema, contextFileSchema, cliConfigSchema, tokenRecordSchema } from '../../src/state/schemas';
+import { credentialFileSchema, companyFileSchema, cliConfigSchema, tokenRecordSchema } from '../../src/state/schemas';
 
-describe('contextNameSchema', () => {
-  it.each(['acme', 'acme-prod', 'a1', 'a.b_c-1'])('accepts %s', (name) => {
-    expect(() => contextNameSchema.parse(name)).not.toThrow();
+describe('credentialFileSchema', () => {
+  it('parses a minimal valid credential body', () => {
+    const parsed = credentialFileSchema.parse({
+      clientId: 'cid',
+      redirectUri: 'https://localhost:9002/cb',
+    });
+    expect(parsed.clientId).toBe('cid');
   });
-  it.each(['', 'A', 'acme/prod', '../etc/passwd', 'acme prod', '-acme', '.acme'])('rejects %s', (name) => {
-    expect(() => contextNameSchema.parse(name)).toThrow();
+
+  it('accepts 127.0.0.1 as localhost', () => {
+    const parsed = credentialFileSchema.parse({
+      clientId: 'cid',
+      redirectUri: 'https://127.0.0.1:9002/cb',
+    });
+    expect(parsed.redirectUri).toBe('https://127.0.0.1:9002/cb');
+  });
+
+  it('accepts optional clientSecret', () => {
+    const parsed = credentialFileSchema.parse({
+      clientId: 'cid',
+      clientSecret: 'sec',
+      redirectUri: 'https://localhost:9002/cb',
+    });
+    expect(parsed.clientSecret).toBe('sec');
+  });
+
+  it('rejects non-localhost redirectUri', () => {
+    expect(() =>
+      credentialFileSchema.parse({
+        clientId: 'cid',
+        redirectUri: 'https://example.com/callback',
+      })
+    ).toThrow(/localhost/);
+  });
+
+  it('rejects http (non-https) redirectUri', () => {
+    expect(() =>
+      credentialFileSchema.parse({
+        clientId: 'cid',
+        redirectUri: 'http://localhost:9002/callback',
+      })
+    ).toThrow(/localhost/);
+  });
+
+  it('rejects extra properties', () => {
+    expect(() =>
+      credentialFileSchema.parse({
+        clientId: 'cid',
+        redirectUri: 'https://localhost:9002/cb',
+        extra: 'nope',
+      })
+    ).toThrow();
   });
 });
 
-describe('contextFileSchema', () => {
-  it('parses a minimal valid context body', () => {
-    const parsed = contextFileSchema.parse({
-      companyCui: 'RO12345678',
-      environment: 'prod',
-      auth: { clientId: 'cid', redirectUri: 'https://localhost/cb' },
+describe('companyFileSchema', () => {
+  it('parses a minimal valid company body', () => {
+    const parsed = companyFileSchema.parse({
+      cui: '12345678',
+      name: 'Acme SRL',
     });
-    expect(parsed.environment).toBe('prod');
+    expect(parsed.cui).toBe('12345678');
+    expect(parsed.name).toBe('Acme SRL');
   });
 
-  it('rejects unknown environment', () => {
+  it('accepts optional registrationNumber and address', () => {
+    const parsed = companyFileSchema.parse({
+      cui: '12345678',
+      name: 'Acme SRL',
+      registrationNumber: 'J40/1/2020',
+      address: 'Bucuresti, Strada A',
+    });
+    expect(parsed.registrationNumber).toBe('J40/1/2020');
+    expect(parsed.address).toBe('Bucuresti, Strada A');
+  });
+
+  it('rejects extra properties', () => {
     expect(() =>
-      contextFileSchema.parse({
-        companyCui: 'RO1',
-        environment: 'staging',
-        auth: { clientId: 'c', redirectUri: 'https://x' },
+      companyFileSchema.parse({
+        cui: '12345678',
+        name: 'Acme SRL',
+        extra: 'nope',
       })
     ).toThrow();
   });
 
-  it('passes through optional defaults', () => {
-    const parsed = contextFileSchema.parse({
-      companyCui: 'RO1',
-      environment: 'test',
-      auth: { clientId: 'c', redirectUri: 'https://x' },
-      defaults: { currency: 'RON', output: 'stdout' },
-    });
-    expect(parsed.defaults?.currency).toBe('RON');
+  it('rejects empty cui', () => {
+    expect(() =>
+      companyFileSchema.parse({
+        cui: '',
+        name: 'Acme SRL',
+      })
+    ).toThrow();
   });
 });
 
@@ -45,13 +101,30 @@ describe('cliConfigSchema', () => {
     expect(cliConfigSchema.parse({})).toEqual({});
   });
 
-  it('parses currentContext + defaults', () => {
+  it('parses activeCui and env', () => {
     const parsed = cliConfigSchema.parse({
-      currentContext: 'acme-prod',
-      defaults: { output: 'stdout', format: 'json' },
+      activeCui: '12345678',
+      env: 'prod',
     });
-    expect(parsed.currentContext).toBe('acme-prod');
-    expect(parsed.defaults?.format).toBe('json');
+    expect(parsed.activeCui).toBe('12345678');
+    expect(parsed.env).toBe('prod');
+  });
+
+  it('rejects unknown env values', () => {
+    expect(() =>
+      cliConfigSchema.parse({
+        env: 'staging',
+      })
+    ).toThrow();
+  });
+
+  it('strips unknown keys (forward-compat with old config.yaml)', () => {
+    const parsed = cliConfigSchema.parse({
+      activeCui: '12345678',
+      currentContext: 'acme-prod',  // old key — silently dropped
+    });
+    expect(parsed).toEqual({ activeCui: '12345678' });
+    expect((parsed as Record<string, unknown>).currentContext).toBeUndefined();
   });
 });
 

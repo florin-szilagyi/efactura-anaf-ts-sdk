@@ -40,7 +40,7 @@ describe('runProgram', () => {
   it('schema print with a bad kind emits a USER_INPUT error envelope', async () => {
     const h = harness();
     await runProgram({
-      argv: ['node', 'anaf-cli', '--json', 'schema', 'print', 'TotallyBogus'],
+      argv: ['node', 'anaf-cli', '--format', 'json', 'schema', 'print', 'TotallyBogus'],
       streams: h.streams,
       exit: h.exit,
     });
@@ -89,7 +89,7 @@ describe('runProgram', () => {
   it('unknown command in JSON mode emits a single valid JSON envelope on stderr (no commander noise)', async () => {
     const h = harness();
     await runProgram({
-      argv: ['node', 'anaf-cli', '--json', 'definitely-not-a-command'],
+      argv: ['node', 'anaf-cli', '--format', 'json', 'definitely-not-a-command'],
       streams: h.streams,
       exit: h.exit,
     });
@@ -111,7 +111,7 @@ describe('runProgram', () => {
   it('unknown option in JSON mode emits a single valid JSON envelope on stderr', async () => {
     const h = harness();
     await runProgram({
-      argv: ['node', 'anaf-cli', '--json', '--definitely-not-a-flag'],
+      argv: ['node', 'anaf-cli', '--format', 'json', '--definitely-not-a-flag'],
       streams: h.streams,
       exit: h.exit,
     });
@@ -224,7 +224,7 @@ describe('runProgram', () => {
     const h = harness();
     await expect(
       runProgram({
-        argv: ['node', 'anaf-cli', '--', '--json'],
+        argv: ['node', 'anaf-cli', '--', '--format', 'json'],
         streams: h.streams,
         exit: h.exit,
       })

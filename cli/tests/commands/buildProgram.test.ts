@@ -1,21 +1,22 @@
 import { buildProgram } from '../../src/commands/buildProgram';
 import { makeOutputContext } from '../../src/output';
+import { getXdgPaths } from '../../src/state/paths';
 
 function deps() {
-  return { output: makeOutputContext({ format: 'text' }), services: {} };
+  return { output: makeOutputContext({ format: 'text' }), services: {} as never, paths: getXdgPaths() };
 }
 
 describe('buildProgram', () => {
-  it('registers all 7 top-level groups in design §6.1 order', () => {
+  it('registers all 7 top-level groups in design order', () => {
     const program = buildProgram(deps());
     const names = program.commands.map((c) => c.name());
-    expect(names).toEqual(['auth', 'ctx', 'efactura', 'lookup', 'ubl', 'run', 'schema']);
+    expect(names).toEqual(['auth', 'cred', 'efactura', 'lookup', 'ubl', 'run', 'schema']);
   });
 
-  it('attaches global flags --json, --context, --no-color', () => {
+  it('attaches global flags --format, --verbose, --no-color', () => {
     const program = buildProgram(deps());
     const longs = program.options.map((o) => o.long);
-    expect(longs).toEqual(expect.arrayContaining(['--json', '--context', '--no-color']));
+    expect(longs).toEqual(expect.arrayContaining(['--format', '--verbose', '--no-color']));
   });
 
   it('sets the program name and version', () => {
