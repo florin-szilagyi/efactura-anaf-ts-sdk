@@ -55,7 +55,6 @@ function buildPartyXml(root: XMLBuilder, tagName: string, party: Party): void {
   partyElement.ele('cac:PartyName').ele('cbc:Name').txt(party.registrationName).up().up();
 
   // Postal Address
-  partyElement
   const postalAddress = partyElement
     .ele('cac:PostalAddress')
     .ele('cbc:StreetName')

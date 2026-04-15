@@ -68,7 +68,7 @@ export const ublBuildInputSchema = z
     customerCui: z.string().min(1),
     lines: z.array(lineInputSchema).min(1),
     currency: z.string().min(1).optional(),
-    taxCurrencyTaxAmount: z.number().positive().optional(),
+    taxCurrencyTaxAmount: z.number().nonnegative().optional(),
     note: z.string().min(1).optional(),
     paymentIban: z.string().min(1).optional(),
     overrides: overridesSchema.optional(),

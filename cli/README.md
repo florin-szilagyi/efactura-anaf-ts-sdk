@@ -194,7 +194,8 @@ anaf-cli lookup validate-cui RO12345678         # format check
 ### `ubl` -- Invoice building
 
 ```bash
-anaf-cli ubl build --action action.yaml [--out invoice.xml]
+anaf-cli ubl build --from-yaml invoice.yaml --out invoice.xml
+anaf-cli ubl build --from-json invoice.json --out invoice.xml
 anaf-cli ubl inspect --xml invoice.xml
 ```
 
@@ -216,7 +217,7 @@ Every manifest shares the same top-level envelope:
 ```yaml
 apiVersion: anaf-cli/v1          # required, literal
 kind: UblBuild | EFacturaUpload  # required
-context: "12345678"              # optional — overrides active company for this run
+context: "12345678"              # required — the supplier/operator CUI
 spec:                            # required — kind-specific payload
   ...
 output:                          # optional
@@ -224,7 +225,7 @@ output:                          # optional
   path: ./invoice.xml            # required when mode: file
 ```
 
-> **Context resolution:** if `context` is omitted, the active company set by `auth login` / `auth use` is used. The top-level `context` key always wins over a `context` inside `spec`.
+> **Context resolution:** `context` must be set in the manifest (or inside `spec.context`). The top-level `context` key always wins over `spec.context`. At execution time the value is further overridden by the active company's authenticated session, so the value in the file acts as documentation/fallback — but must be non-empty for the manifest to parse correctly.
 
 > **Strict validation:** all manifests reject unknown fields. A typo in a field name is a hard error.
 
