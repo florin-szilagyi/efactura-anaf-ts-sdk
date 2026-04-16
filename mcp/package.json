@@ -20,7 +20,11 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "files": ["dist/**/*", "README.md", "LICENSE"],
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "clean": "rimraf dist coverage",
     "build": "pnpm run clean && tsc -p tsconfig.build.json",
@@ -32,12 +36,13 @@
     "verify": "pnpm run lint && pnpm run build && pnpm run test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
     "@florinszilagyi/anaf-ts-sdk": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
     "yaml": "^2.5.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@jest/globals": "29.7.0",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.10.5",
     "jest": "^29.7.0",
