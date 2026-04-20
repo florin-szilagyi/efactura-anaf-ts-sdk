@@ -1,0 +1,12 @@
+{
+  "anaf": {
+    "command": "npx",
+    "args": ["-y", "@florinszilagyi/anaf-mcp@latest"],
+    "env": {
+      "ANAF_CLIENT_ID": "",
+      "ANAF_CLIENT_SECRET": "",
+      "ANAF_REDIRECT_URI": "https://localhost:9002/callback",
+      "ANAF_ENV": "prod"
+    }
+  }
+}

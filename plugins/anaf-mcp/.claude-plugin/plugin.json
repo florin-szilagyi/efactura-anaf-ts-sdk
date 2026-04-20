@@ -1,0 +1,11 @@
+{
+  "name": "anaf-mcp",
+  "version": "0.1.0",
+  "description": "Skills for using the ANAF e-Factura MCP server — setup, invoice creation, and message listing",
+  "author": {
+    "name": "Florin Szilagyi",
+    "url": "https://github.com/florin-szilagyi"
+  },
+  "homepage": "https://github.com/florin-szilagyi/ts-anaf/tree/main/mcp",
+  "keywords": ["anaf", "efactura", "romania", "invoicing"]
+}

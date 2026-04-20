@@ -1,0 +1,11 @@
+{
+  "name": "anaf-cli",
+  "version": "1.0.0",
+  "description": "Skills for using the ANAF e-Factura CLI — setup, company management, invoice upload, and YAML manifest mode for agentic/CI flows",
+  "author": {
+    "name": "Florin Szilagyi",
+    "url": "https://github.com/florin-szilagyi"
+  },
+  "homepage": "https://github.com/florin-szilagyi/ts-anaf/tree/main/cli",
+  "keywords": ["anaf", "efactura", "romania", "invoicing", "cli"]
+}

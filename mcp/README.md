@@ -4,28 +4,14 @@ MCP server exposing the ANAF e-Factura SDK as tools for LLM agents (Claude Deskt
 
 ## Prerequisites
 
-This server **reuses the `anaf-cli` state on disk** for authentication. Before using the MCP, complete a one-time CLI setup:
+Set your ANAF OAuth app credentials as env vars in `mcpServers` — no `anaf-cli` installation required. Authentication is handled by the `anaf_auth_login` / `anaf_auth_complete` tools directly.
 
-```bash
-# 1. Install the CLI
-npm install -g @florinszilagyi/anaf-cli
-
-# 2. Register your OAuth credential (once, ever)
-anaf-cli cred set --client-id <id> --redirect-uri https://localhost:3000/callback
-
-# 3. Log in for a specific company (obtains refresh token)
-anaf-cli auth login <CUI>
-```
-
-The MCP server reads:
+The MCP server stores state at the same XDG paths as `anaf-cli`, so credentials are shared if you use both:
 
 | File | Purpose |
 |---|---|
-| `~/.config/anaf-cli/credential.yaml` | OAuth client ID + redirect URI (optional if env vars set) |
 | `~/.config/anaf-cli/config.yaml` | Active company CUI (written by `anaf_auth_login`/`anaf_switch_company`) |
 | `~/.local/share/anaf-cli/tokens/_default.json` | Refresh + access tokens |
-
-All OAuth values (`ANAF_CLIENT_ID`, `ANAF_CLIENT_SECRET`, `ANAF_REDIRECT_URI`) and the environment (`ANAF_ENV=prod|test`, default `prod`) are set as env vars in `mcpServers`. No `anaf-cli` installation required. The token file is shared with `anaf-cli` if you use both.
 
 ## Tools
 
