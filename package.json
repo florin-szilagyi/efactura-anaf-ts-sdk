@@ -6,13 +6,16 @@
     "build": "pnpm -r run build",
     "build:sdk": "pnpm --filter @florinszilagyi/anaf-ts-sdk run build",
     "build:cli": "pnpm --filter @florinszilagyi/anaf-ts-sdk run build && pnpm --filter @florinszilagyi/anaf-cli run build",
+    "build:mcp": "pnpm --filter @florinszilagyi/anaf-ts-sdk run build && pnpm --filter @florinszilagyi/anaf-mcp run build",
     "test": "pnpm -r run test",
     "test:sdk": "pnpm --filter @florinszilagyi/anaf-ts-sdk run test:unit",
     "test:cli": "pnpm --filter @florinszilagyi/anaf-cli run test",
+    "test:mcp": "pnpm --filter @florinszilagyi/anaf-mcp run test",
     "lint": "pnpm -r run lint",
     "lint:fix": "pnpm -r run lint:fix",
-    "verify": "pnpm --filter @florinszilagyi/anaf-ts-sdk run build && pnpm --filter @florinszilagyi/anaf-cli run verify",
-    "dev": "pnpm --filter @florinszilagyi/anaf-ts-sdk run build && pnpm --filter @florinszilagyi/anaf-cli run dev"
+    "verify": "pnpm --filter @florinszilagyi/anaf-ts-sdk run build && pnpm --filter @florinszilagyi/anaf-cli run verify && pnpm --filter @florinszilagyi/anaf-mcp run verify",
+    "dev": "pnpm --filter @florinszilagyi/anaf-ts-sdk run build && pnpm --filter @florinszilagyi/anaf-cli run dev",
+    "dev:mcp": "pnpm --filter @florinszilagyi/anaf-ts-sdk run build && pnpm --filter @florinszilagyi/anaf-mcp run dev"
   },
   "engines": {
     "node": ">=20"

@@ -12,7 +12,7 @@ export interface CallbackServerOptions {
   port: number;
   timeoutMs?: number;
   tlsDir: string;
-  stderr: NodeJS.WritableStream;
+  stderr?: NodeJS.WritableStream;
   /** The ANAF OAuth authorization URL. The root page redirects here after cert trust. */
   authUrl: string;
 }
@@ -81,7 +81,7 @@ export function ensureLocalhostCert(tlsDir: string): { cert: Buffer; key: Buffer
  * Resolves with the authorization code or rejects on timeout.
  */
 export function waitForCallback(opts: CallbackServerOptions): Promise<CallbackResult> {
-  const { port, timeoutMs = DEFAULT_TIMEOUT_MS, tlsDir, stderr, authUrl } = opts;
+  const { port, timeoutMs = DEFAULT_TIMEOUT_MS, tlsDir, stderr = process.stderr, authUrl } = opts;
 
   const tls = ensureLocalhostCert(tlsDir);
   if (!tls) {
