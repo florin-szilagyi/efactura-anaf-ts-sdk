@@ -1,0 +1,24 @@
+{
+  "name": "anaf",
+  "owner": {
+    "name": "Florin Szilagyi",
+    "url": "https://github.com/florin-szilagyi"
+  },
+  "plugins": [
+    {
+      "name": "anaf-cli",
+      "source": "./plugins/anaf-cli",
+      "description": "Skills for using the ANAF e-Factura CLI — setup, company management, invoice upload, and YAML manifest mode for agentic/CI flows"
+    },
+    {
+      "name": "anaf-mcp",
+      "source": "./plugins/anaf-mcp",
+      "description": "Skills for using the ANAF e-Factura MCP server — setup, invoice creation, and message listing"
+    },
+    {
+      "name": "anaf",
+      "source": "./external_plugins/anaf",
+      "description": "ANAF e-Factura MCP server — create, validate, upload and manage Romanian e-invoices directly from Claude Code"
+    }
+  ]
+}
