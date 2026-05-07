@@ -82,9 +82,6 @@ jobs:
           - os: macos-14 # arm64 runner
             target: darwin-arm64
             ext: ''
-          - os: macos-13 # x64 runner
-            target: darwin-x64
-            ext: ''
           - os: ubuntu-latest
             target: linux-x64
             ext: ''
@@ -163,7 +160,6 @@ jobs:
         run: |
           mkdir -p ./release-final
           cp ./release-artifacts/sea-darwin-arm64/*.tar.gz ./release-final/
-          cp ./release-artifacts/sea-darwin-x64/*.tar.gz ./release-final/
           cp ./release-artifacts/sea-linux-x64/*.tar.gz ./release-final/
           cp ./release-artifacts/npm-tarball/*.tgz ./release-final/
           cd ./release-final
