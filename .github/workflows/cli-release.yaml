@@ -170,7 +170,9 @@ jobs:
         with:
           files: ./release-final/*
           body_path: ./release-final/SHA256SUMS
-          draft: true
+          # Publish on tag pushes so Homebrew tap URLs resolve immediately;
+          # workflow_dispatch dry-runs are gated by the job-level `if:` above.
+          draft: false
           prerelease: ${{ contains(needs.test-and-pack.outputs.cli_version, '-') }}
       - name: Install (workspace, for publish)
         run: pnpm install --frozen-lockfile
@@ -188,3 +190,68 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ─────────────────────────── Homebrew tap update ──────────
+  # Renders cli/Formula/anaf-cli.rb with the published version and the SHA256
+  # of each platform tarball, then commits to the
+  # florin-szilagyi/homebrew-anaf-cli tap repo. Skipped on dry-runs.
+  homebrew:
+    needs: [test-and-pack, publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CLI_VERSION: ${{ needs.test-and-pack.outputs.cli_version }}
+    steps:
+      - name: Checkout source repo (for formula template)
+        uses: actions/checkout@v4
+        with:
+          path: source
+      - name: Download release tarballs
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+      - name: Compute SHA256s
+        id: shas
+        run: |
+          ARM64_SHA=$(sha256sum "release-artifacts/sea-darwin-arm64/anaf-cli-${CLI_VERSION}-darwin-arm64.tar.gz" | awk '{print $1}')
+          LINUX_SHA=$(sha256sum "release-artifacts/sea-linux-x64/anaf-cli-${CLI_VERSION}-linux-x64.tar.gz" | awk '{print $1}')
+          echo "arm64=$ARM64_SHA" >> "$GITHUB_OUTPUT"
+          echo "linux=$LINUX_SHA" >> "$GITHUB_OUTPUT"
+          echo "darwin-arm64: $ARM64_SHA"
+          echo "linux-x64: $LINUX_SHA"
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: florin-szilagyi/homebrew-anaf-cli
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Render formula
+        env:
+          ARM64_SHA: ${{ steps.shas.outputs.arm64 }}
+          LINUX_SHA: ${{ steps.shas.outputs.linux }}
+        run: |
+          mkdir -p tap/Formula
+          # sed with | as delimiter to avoid issues with paths/URLs.
+          sed \
+            -e "s|REPLACE_WITH_VERSION|${CLI_VERSION}|g" \
+            -e "s|REPLACE_WITH_DARWIN_ARM64_SHA256|${ARM64_SHA}|g" \
+            -e "s|REPLACE_WITH_LINUX_X64_SHA256|${LINUX_SHA}|g" \
+            source/cli/Formula/anaf-cli.rb > tap/Formula/anaf-cli.rb
+          echo "--- rendered formula ---"
+          cat tap/Formula/anaf-cli.rb
+      - name: Commit and push to tap
+        working-directory: tap
+        env:
+          COMMIT_MESSAGE: "anaf-cli ${{ env.CLI_VERSION }}"
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- Formula/anaf-cli.rb; then
+            echo "Formula already up to date for ${CLI_VERSION}; nothing to commit."
+            exit 0
+          fi
+          git add Formula/anaf-cli.rb
+          git commit -m "$COMMIT_MESSAGE"
+          git push

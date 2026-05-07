@@ -1,11 +1,14 @@
 # typed: false
 # frozen_string_literal: true
 
-# Source formula for the standalone `anaf-cli` Homebrew tap.
+# Source formula template for the standalone `anaf-cli` Homebrew tap.
 #
-# This file is published to `florin-szilagyi/homebrew-anaf-cli` as
-# `Formula/anaf-cli.rb`. The SHA256 placeholders are replaced by the CI
-# release pipeline on every tagged release of the CLI.
+# This file is the template; the CI release pipeline (cli-release.yaml,
+# `homebrew` job) substitutes REPLACE_WITH_* markers and pushes the rendered
+# formula to `florin-szilagyi/homebrew-anaf-cli` on every tagged CLI release.
+#
+# Intel macs are not shipped — Apple Silicon binaries run under Rosetta. For
+# Intel-only Linux, install via `npm i -g @florinszilagyi/anaf-cli`.
 #
 # Install:
 #   brew tap florin-szilagyi/anaf-cli
@@ -14,17 +17,12 @@ class AnafCli < Formula
   desc "CLI for the Romanian ANAF e-Factura SDK (anaf-ts-sdk)"
   homepage "https://github.com/florin-szilagyi/ts-anaf"
   license "MIT"
-  version "0.1.0-preview.1"
+  version "REPLACE_WITH_VERSION"
 
   on_macos do
     on_arm do
       url "https://github.com/florin-szilagyi/ts-anaf/releases/download/cli-v#{version}/anaf-cli-#{version}-darwin-arm64.tar.gz"
       sha256 "REPLACE_WITH_DARWIN_ARM64_SHA256"
-    end
-
-    on_intel do
-      url "https://github.com/florin-szilagyi/ts-anaf/releases/download/cli-v#{version}/anaf-cli-#{version}-darwin-x64.tar.gz"
-      sha256 "REPLACE_WITH_DARWIN_X64_SHA256"
     end
   end
 
