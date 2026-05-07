@@ -13,18 +13,14 @@ import type { MessageDetails } from '../types';
  */
 export async function enrichMessagesWithCompanyData<T extends { mesaje?: MessageDetails[] }>(
   response: T,
-  detailsClient: AnafDetailsClient,
+  detailsClient: AnafDetailsClient
 ): Promise<T> {
   if (!response.mesaje || response.mesaje.length === 0) {
     return response;
   }
 
   const uniqueCuis = [
-    ...new Set(
-      response.mesaje
-        .map((m) => m.cif_emitent)
-        .filter((cui): cui is string => Boolean(cui)),
-    ),
+    ...new Set(response.mesaje.map((m) => m.cif_emitent).filter((cui): cui is string => Boolean(cui))),
   ];
 
   if (uniqueCuis.length === 0) {
