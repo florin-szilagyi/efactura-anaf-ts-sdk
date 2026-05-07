@@ -11,6 +11,7 @@
     "test:sdk": "pnpm --filter @florinszilagyi/anaf-ts-sdk run test:unit",
     "test:cli": "pnpm --filter @florinszilagyi/anaf-cli run test",
     "test:mcp": "pnpm --filter @florinszilagyi/anaf-mcp run test",
+    "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
     "lint:fix": "pnpm -r run lint:fix",
     "verify": "pnpm --filter @florinszilagyi/anaf-ts-sdk run build && pnpm --filter @florinszilagyi/anaf-cli run verify && pnpm --filter @florinszilagyi/anaf-mcp run verify",

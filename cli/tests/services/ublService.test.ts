@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { UblService } from '../../src/services/ublService';
+import { UblService, bucharestSectorFromAddress, countyFromAddress } from '../../src/services/ublService';
 import { CompanyService, ConfigStore } from '../../src/state';
 import { getXdgPaths } from '../../src/state/paths';
 import { CliError } from '../../src/output/errors';
@@ -308,6 +308,14 @@ describe('companyToParty county extraction', () => {
     expect(await buildAndGetSupplierCounty('MUN. BUCURESTI, SECTOR 1, STR. VICTORIEI, NR. 10')).toBe('RO-B');
   });
 
+  it('extracts Bucharest from MUNICIPIUL BUCURESTI prefix (full word, with diacritics)', async () => {
+    // ANAF lookups for Bucharest companies return the full word "MUNICIPIUL BUCUREŞTI".
+    // After diacritic stripping that becomes "MUNICIPIUL BUCURESTI" — must be treated as RO-B.
+    expect(await buildAndGetSupplierCounty('MUNICIPIUL BUCUREŞTI, SECTOR 1, STR SEMICERCULUI, NR.12, ET.III')).toBe(
+      'RO-B'
+    );
+  });
+
   it('extracts Bucharest from SECTOR prefix', async () => {
     expect(await buildAndGetSupplierCounty('SECTOR 3, STR. UNIRII, NR. 5')).toBe('RO-B');
   });
@@ -322,5 +330,101 @@ describe('companyToParty county extraction', () => {
 
   it('returns undefined for empty address', async () => {
     expect(await buildAndGetSupplierCounty('')).toBeUndefined();
+  });
+});
+
+describe('countyFromAddress (direct)', () => {
+  it('matches the full-word "MUNICIPIUL BUCUREŞTI" form returned by ANAF lookups', () => {
+    expect(countyFromAddress('MUNICIPIUL BUCUREŞTI, SECTOR 1, STR SEMICERCULUI, NR.12, ET.III')).toBe('RO-B');
+  });
+
+  it('still matches the abbreviated "MUN. BUCURESTI" form', () => {
+    expect(countyFromAddress('MUN. BUCURESTI, SECTOR 3, STR. UNIRII')).toBe('RO-B');
+  });
+
+  it('extracts non-Bucharest county codes from JUD. prefix', () => {
+    expect(countyFromAddress('JUD. CLUJ, MUN. CLUJ-NAPOCA, STR. MIKO IMRE, NR.8')).toBe('RO-CJ');
+  });
+});
+
+describe('bucharestSectorFromAddress', () => {
+  it('returns SECTOR1 for the full-word ANAF Bucharest form', () => {
+    expect(bucharestSectorFromAddress('MUNICIPIUL BUCUREŞTI, SECTOR 1, STR SEMICERCULUI, NR.12, ET.III')).toBe(
+      'SECTOR1'
+    );
+  });
+
+  it('returns SECTOR3 for the abbreviated MUN. BUCURESTI form', () => {
+    expect(bucharestSectorFromAddress('MUN. BUCURESTI, SECTOR 3, STR. UNIRII')).toBe('SECTOR3');
+  });
+
+  it('returns undefined for non-Bucharest county addresses', () => {
+    expect(bucharestSectorFromAddress('JUD. CLUJ, MUN. CLUJ-NAPOCA, STR. MIKO IMRE, NR.8')).toBeUndefined();
+  });
+
+  it('returns undefined when Bucharest address has no SECTOR token', () => {
+    // We do not infer a sector when ANAF doesn't include it in the address string.
+    expect(bucharestSectorFromAddress('MUNICIPIUL BUCURESTI, BD. UNIRII, NR. 1')).toBeUndefined();
+  });
+
+  it('returns undefined for an out-of-range sector number', () => {
+    // RO-B has sectors 1..6 only.
+    expect(bucharestSectorFromAddress('MUN. BUCURESTI, SECTOR 7, STR. X')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty address', () => {
+    expect(bucharestSectorFromAddress('')).toBeUndefined();
+    expect(bucharestSectorFromAddress(undefined)).toBeUndefined();
+  });
+});
+
+describe('companyToParty Bucharest sector derivation (BR-RO-100)', () => {
+  // We exercise the integration from ANAF lookup → invoice supplier.address — the
+  // county must be RO-B and the city must be auto-derived to SECTORn.
+  async function buildAndGetSupplierAddress(address: string) {
+    const paths = freshPaths();
+    const configStore = new ConfigStore(paths);
+    const supplier: AnafCompanyData = { ...fakeSupplier, address };
+    const lookup = new StubLookupService();
+    lookup.responses.set('12345678', supplier);
+    lookup.responses.set('87654321', fakeCustomer);
+    const svc = new UblService({
+      companyService: {} as never,
+      configStore,
+      lookupService: lookup as never,
+    });
+    const action = normalizeUblBuildAction({
+      context: 'RO12345678',
+      invoiceNumber: 'FCT-SEC',
+      issueDate: '2026-05-08',
+      customerCui: 'RO87654321',
+      lines: ['x|1|100|19'],
+    });
+    const result = await svc.buildFromAction(action);
+    return result.invoice.supplier.address;
+  }
+
+  it('derives city=SECTOR1 from a MUNICIPIUL BUCUREŞTI ANAF address', async () => {
+    const address = await buildAndGetSupplierAddress('MUNICIPIUL BUCUREŞTI, SECTOR 1, STR SEMICERCULUI, NR.12, ET.III');
+    expect(address.county).toBe('RO-B');
+    expect(address.city).toBe('SECTOR1');
+  });
+
+  it('derives city=SECTOR3 from a MUN. BUCURESTI ANAF address', async () => {
+    const address = await buildAndGetSupplierAddress('MUN. BUCURESTI, SECTOR 3, STR. UNIRII');
+    expect(address.county).toBe('RO-B');
+    expect(address.city).toBe('SECTOR3');
+  });
+
+  it('keeps the placeholder city for non-Bucharest counties', async () => {
+    const address = await buildAndGetSupplierAddress('JUD. CLUJ, MUN. CLUJ-NAPOCA, STR. MIKO IMRE, NR.8');
+    expect(address.county).toBe('RO-CJ');
+    expect(address.city).toBe('-');
+  });
+
+  it('falls back to placeholder when Bucharest address has no SECTOR token', async () => {
+    const address = await buildAndGetSupplierAddress('MUNICIPIUL BUCURESTI, BD. UNIRII, NR. 1');
+    expect(address.county).toBe('RO-B');
+    expect(address.city).toBe('-');
   });
 });

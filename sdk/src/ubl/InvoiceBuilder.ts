@@ -41,8 +41,12 @@ interface TaxGroup {
  * @param root XML root element
  * @param tagName Tag name (cac:AccountingSupplierParty or cac:AccountingCustomerParty)
  * @param party Party information
+ * @param isSupplierVatPayer Whether the invoice's supplier is VAT-registered. When false, all
+ *   lines fall under tax category 'O' and CIUS-RO BR-O-02 forbids any VAT id on either party
+ *   (Seller VAT id BT-31, tax representative VAT id BT-63, Buyer VAT id BT-48). PartyTaxScheme
+ *   is therefore omitted for both supplier and customer in that case.
  */
-function buildPartyXml(root: XMLBuilder, tagName: string, party: Party): void {
+function buildPartyXml(root: XMLBuilder, tagName: string, party: Party, isSupplierVatPayer: boolean): void {
   const partyElement = root.ele(tagName).ele('cac:Party');
   const address = party.address;
 
@@ -81,8 +85,10 @@ function buildPartyXml(root: XMLBuilder, tagName: string, party: Party): void {
     .up()
     .up();
 
-  // Party Tax Scheme (if VAT number provided) — must come before PartyLegalEntity
-  if (party.vatNumber) {
+  // Party Tax Scheme (if VAT number provided) — must come before PartyLegalEntity.
+  // BR-O-02: when the supplier is non-VAT (all lines are category 'O'), neither the
+  // seller VAT id (BT-31) nor the buyer VAT id (BT-48) may be present.
+  if (party.vatNumber && isSupplierVatPayer) {
     partyElement
       .ele('cac:PartyTaxScheme')
       .ele('cbc:CompanyID')
@@ -395,8 +401,8 @@ export function buildInvoiceXml(input: InvoiceInput): string {
   }
 
   // Parties
-  buildPartyXml(root, 'cac:AccountingSupplierParty', input.supplier);
-  buildPartyXml(root, 'cac:AccountingCustomerParty', input.customer);
+  buildPartyXml(root, 'cac:AccountingSupplierParty', input.supplier, isSupplierVatPayer);
+  buildPartyXml(root, 'cac:AccountingCustomerParty', input.customer, isSupplierVatPayer);
 
   // Payment means (if IBAN provided)
   if (input.paymentIban) {
@@ -423,7 +429,7 @@ export function buildInvoiceXml(input: InvoiceInput): string {
   // Add tax subtotal for each tax group (if any)
   if (taxGroups.length > 0) {
     taxGroups.forEach((group) => {
-      const subtotalElement = taxTotalElement
+      const taxCategoryElement = taxTotalElement
         .ele('cac:TaxSubtotal')
         .ele('cbc:TaxableAmount', { currencyID: currency })
         .txt(group.taxableAmount.toFixed(2))
@@ -434,17 +440,19 @@ export function buildInvoiceXml(input: InvoiceInput): string {
         .ele('cac:TaxCategory')
         .ele('cbc:ID')
         .txt(group.categoryId)
-        .up()
-        .ele('cbc:Percent')
-        .txt(group.percent.toFixed(2))
         .up();
+
+      // BR-O-05: invoice line tax category 'O' (Not subject to VAT) must not contain BT-152 (Percent).
+      if (group.categoryId !== 'O') {
+        taxCategoryElement.ele('cbc:Percent').txt(group.percent.toFixed(2)).up();
+      }
 
       // Add exemption reason for category O
       if (group.exemptionReasonCode) {
-        subtotalElement.ele('cbc:TaxExemptionReasonCode').txt(group.exemptionReasonCode).up();
+        taxCategoryElement.ele('cbc:TaxExemptionReasonCode').txt(group.exemptionReasonCode).up();
       }
 
-      subtotalElement.ele('cac:TaxScheme').ele('cbc:ID').txt('VAT').up().up().up(); // End TaxCategory and TaxSubtotal
+      taxCategoryElement.ele('cac:TaxScheme').ele('cbc:ID').txt('VAT').up().up().up(); // End TaxCategory and TaxSubtotal
     });
   } else {
     // Add a default tax subtotal for empty invoices
@@ -517,7 +525,7 @@ export function buildInvoiceXml(input: InvoiceInput): string {
       lineTaxCategory = 'Z';
     }
 
-    const lineElement = root
+    const classifiedTaxCategoryElement = root
       .ele('cac:InvoiceLine')
       .ele('cbc:ID')
       .txt(lineId)
@@ -538,10 +546,14 @@ export function buildInvoiceXml(input: InvoiceInput): string {
       .ele('cac:ClassifiedTaxCategory')
       .ele('cbc:ID')
       .txt(lineTaxCategory)
-      .up()
-      .ele('cbc:Percent')
-      .txt(taxPercent.toFixed(2))
-      .up()
+      .up();
+
+    // BR-O-05: invoice line tax category 'O' (Not subject to VAT) must not contain BT-152 (Percent).
+    if (lineTaxCategory !== 'O') {
+      classifiedTaxCategoryElement.ele('cbc:Percent').txt(taxPercent.toFixed(2)).up();
+    }
+
+    classifiedTaxCategoryElement
       .ele('cac:TaxScheme')
       .ele('cbc:ID')
       .txt('VAT')

@@ -68,6 +68,7 @@
     "build:types": "tsc -p tsconfig.types.json",
     "clean": "rimraf dist",
     "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint 'src/**/*.{ts,tsx}' --fix",
     "lint:check": "eslint 'src/**/*.{ts,tsx}'",
     "format": "prettier --write 'src/**/*.{ts,tsx,js,json,md}'",

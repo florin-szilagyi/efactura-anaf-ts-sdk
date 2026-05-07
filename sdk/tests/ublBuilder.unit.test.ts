@@ -1039,6 +1039,174 @@ describe('UblBuilder Tests', () => {
     });
   });
 
+  describe('CIUS-RO BR-O rules (non-VAT supplier, category O)', () => {
+    /**
+     * Helpers — extract a focused slice of the XML so assertions don't false-positive on
+     * matches in other parts of the document.
+     */
+    function extractCustomerSection(xml: string): string {
+      const start = xml.indexOf('cac:AccountingCustomerParty');
+      // The next top-level element after the customer party is either PaymentMeans or TaxTotal.
+      const stops = ['cac:PaymentMeans', 'cac:TaxTotal'];
+      let end = xml.length;
+      for (const stop of stops) {
+        const idx = xml.indexOf(stop, start);
+        if (idx > -1 && idx < end) end = idx;
+      }
+      return xml.substring(start, end);
+    }
+    function extractTaxSubtotalSection(xml: string): string {
+      const start = xml.indexOf('<cac:TaxSubtotal');
+      const end = xml.indexOf('</cac:TaxSubtotal>', start);
+      return xml.substring(start, end);
+    }
+    function extractClassifiedTaxCategorySection(xml: string): string {
+      const start = xml.indexOf('<cac:ClassifiedTaxCategory');
+      const end = xml.indexOf('</cac:ClassifiedTaxCategory>', start);
+      return xml.substring(start, end);
+    }
+
+    test('non-VAT supplier with VAT-registered customer omits Percent and customer PartyTaxScheme', () => {
+      const invoiceData: InvoiceInput = {
+        invoiceNumber: 'PPAgnt-001',
+        issueDate: '2026-05-08',
+        currency: 'RON',
+        supplier: {
+          registrationName: 'PP AUTO SRL',
+          companyId: '30498862',
+          // No vatNumber: non-VAT supplier
+          address: {
+            street: 'Str. PFA 1',
+            city: 'Cluj-Napoca',
+            postalZone: '400001',
+            county: 'RO-CJ',
+          },
+        },
+        customer: {
+          registrationName: 'CARCENTRIC S.R.L.',
+          companyId: '28914903',
+          // VAT-registered customer — the SDK must still drop PartyTaxScheme because
+          // BR-O-02 forbids any party VAT id when all lines are category 'O'.
+          vatNumber: 'RO28914903',
+          address: {
+            street: 'STR SEMICERCULUI NR 12',
+            city: 'SECTOR1',
+            postalZone: '010101',
+            county: 'RO-B',
+          },
+        },
+        lines: [
+          {
+            description: 'Servicii conform deviz',
+            quantity: 1,
+            unitPrice: 1425,
+            taxPercent: 0,
+          },
+        ],
+        isSupplierVatPayer: false,
+      };
+
+      const xml = builder.generateInvoiceXml(invoiceData);
+
+      // Category 'O' is set for both the tax subtotal and the line classification.
+      const taxSubtotal = extractTaxSubtotalSection(xml);
+      const classifiedTaxCategory = extractClassifiedTaxCategorySection(xml);
+      expect(taxSubtotal).toContain('<cbc:ID>O</cbc:ID>');
+      expect(classifiedTaxCategory).toContain('<cbc:ID>O</cbc:ID>');
+
+      // BR-O-05: no <cbc:Percent> inside either category 'O' block.
+      expect(taxSubtotal).not.toContain('<cbc:Percent>');
+      expect(classifiedTaxCategory).not.toContain('<cbc:Percent>');
+
+      // BR-O-02: no PartyTaxScheme on either supplier or customer.
+      const customerSection = extractCustomerSection(xml);
+      expect(customerSection).not.toContain('cac:PartyTaxScheme');
+      const supplierStart = xml.indexOf('cac:AccountingSupplierParty');
+      const supplierEnd = xml.indexOf('cac:AccountingCustomerParty');
+      const supplierSection = xml.substring(supplierStart, supplierEnd);
+      expect(supplierSection).not.toContain('cac:PartyTaxScheme');
+
+      // The exemption reason must still be emitted for category 'O'.
+      expect(taxSubtotal).toContain('<cbc:TaxExemptionReasonCode>VATEX-EU-O</cbc:TaxExemptionReasonCode>');
+    });
+
+    test('VAT-payer supplier still emits Percent and customer PartyTaxScheme (regression)', () => {
+      const invoiceData: InvoiceInput = {
+        ...mockTestData.invoiceData,
+        isSupplierVatPayer: true,
+        supplier: {
+          ...mockTestData.invoiceData.supplier,
+          vatNumber: 'RO12345678',
+        },
+        customer: {
+          ...mockTestData.invoiceData.customer,
+          vatNumber: 'RO87654321',
+        },
+        lines: [
+          { description: 'Standard rated', quantity: 1, unitPrice: 100, taxPercent: 19 },
+          { description: 'Zero rated', quantity: 1, unitPrice: 50, taxPercent: 0 },
+        ],
+      };
+
+      const xml = builder.generateInvoiceXml(invoiceData);
+
+      // Customer PartyTaxScheme must still be present for VAT-registered buyers.
+      const customerSection = extractCustomerSection(xml);
+      expect(customerSection).toContain('cac:PartyTaxScheme');
+      expect(customerSection).toContain('<cbc:CompanyID>RO87654321</cbc:CompanyID>');
+
+      // Supplier PartyTaxScheme must still be present.
+      const supplierStart = xml.indexOf('cac:AccountingSupplierParty');
+      const supplierEnd = xml.indexOf('cac:AccountingCustomerParty');
+      const supplierSection = xml.substring(supplierStart, supplierEnd);
+      expect(supplierSection).toContain('cac:PartyTaxScheme');
+
+      // Percent must still be emitted on category 'S' and 'Z' lines/subtotals.
+      expect(xml).toContain('<cbc:Percent>19.00</cbc:Percent>');
+      expect(xml).toContain('<cbc:Percent>0.00</cbc:Percent>');
+      // Sanity: there are no 'O' categories in this invoice.
+      expect(xml).not.toContain('<cbc:ID>O</cbc:ID>');
+    });
+
+    test('non-VAT supplier with non-VAT customer (no vatNumber) still drops both PartyTaxScheme blocks', () => {
+      const invoiceData: InvoiceInput = {
+        ...mockTestData.invoiceData,
+        isSupplierVatPayer: false,
+        supplier: {
+          registrationName: 'PFA Supplier',
+          companyId: 'F40/123/2020',
+          // no vatNumber
+          address: {
+            street: 'Str. PFA 1',
+            city: 'Cluj-Napoca',
+            postalZone: '400001',
+          },
+        },
+        customer: {
+          registrationName: 'Buyer SRL',
+          companyId: '99999999',
+          // no vatNumber
+          address: {
+            street: 'Str. Buyer 2',
+            city: 'Iasi',
+            postalZone: '700001',
+          },
+        },
+        lines: [{ description: 'Service', quantity: 1, unitPrice: 100, taxPercent: 0 }],
+      };
+
+      const xml = builder.generateInvoiceXml(invoiceData);
+
+      expect(xml).not.toContain('cac:PartyTaxScheme');
+      const taxSubtotal = extractTaxSubtotalSection(xml);
+      const classifiedTaxCategory = extractClassifiedTaxCategorySection(xml);
+      expect(taxSubtotal).toContain('<cbc:ID>O</cbc:ID>');
+      expect(classifiedTaxCategory).toContain('<cbc:ID>O</cbc:ID>');
+      expect(taxSubtotal).not.toContain('<cbc:Percent>');
+      expect(classifiedTaxCategory).not.toContain('<cbc:Percent>');
+    });
+  });
+
   describe('Performance Tests', () => {
     test('should generate XML quickly for simple invoices', () => {
       const start = Date.now();

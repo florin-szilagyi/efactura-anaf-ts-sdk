@@ -147,9 +147,10 @@ function normalizeRo(s: string): string {
  * ANAF address format examples:
  *   "JUD. CLUJ, MUN. CLUJ-NAPOCA, STR. MIHAI EMINESCU, NR. 1"
  *   "MUN. BUCURESTI, SECTOR 1, STR. VICTORIEI, NR. 10"
+ *   "MUNICIPIUL BUCUREŞTI, SECTOR 1, STR SEMICERCULUI, NR.12"
  *   "SECTOR 3, STR. UNIRII, NR. 5"  (Bucharest sector)
  */
-function countyFromAddress(address: string | undefined): string | undefined {
+export function countyFromAddress(address: string | undefined): string | undefined {
   if (!address?.trim()) return undefined;
   const norm = normalizeRo(address);
 
@@ -160,12 +161,28 @@ function countyFromAddress(address: string | undefined): string | undefined {
     return COUNTY_NAME_TO_ISO[countyName] ?? undefined;
   }
 
-  // Bucharest: "MUN. BUCURESTI..." or "SECTOR X..."
-  if (/^MUN\.\s+BUCURESTI/.test(norm) || /^SECTOR\s+\d/.test(norm)) {
+  // Bucharest: "MUN. BUCURESTI...", "MUNICIPIUL BUCURESTI..." or bare "SECTOR X...".
+  // ANAF returns the full word "MUNICIPIUL" in some lookups; we accept both forms.
+  if (/^MUN\.\s+BUCURESTI/.test(norm) || /^MUNICIPIUL\s+BUCURESTI/.test(norm) || /^SECTOR\s+\d/.test(norm)) {
     return 'RO-B';
   }
 
   return undefined;
+}
+
+/**
+ * Parse the Bucharest sector (1-6) from an ANAF-formatted address. Returns the
+ * CIUS-RO city value ("SECTOR1".."SECTOR6") expected by BR-RO-100 when the buyer
+ * county is RO-B, or undefined when the address is not a Bucharest sector.
+ */
+export function bucharestSectorFromAddress(address: string | undefined): string | undefined {
+  if (!address?.trim()) return undefined;
+  if (countyFromAddress(address) !== 'RO-B') return undefined;
+  const sectorMatch = normalizeRo(address).match(/SECTOR\s+(\d)/);
+  if (!sectorMatch) return undefined;
+  const sector = sectorMatch[1];
+  if (sector < '1' || sector > '6') return undefined;
+  return `SECTOR${sector}`;
 }
 
 function companyToParty(company: AnafCompanyData, fallbackCui: string): Party {
@@ -174,13 +191,18 @@ function companyToParty(company: AnafCompanyData, fallbackCui: string): Party {
   const street = company.address?.trim() ? company.address : ADDRESS_PLACEHOLDER;
   const postalZone = company.postalCode?.trim() ? company.postalCode : ADDRESS_PLACEHOLDER;
   const county = countyFromAddress(company.address);
+  // BR-RO-100: when CountrySubentity is RO-B (Bucharest), CityName must be SECTOR1..SECTOR6.
+  // Auto-derive the sector from the ANAF address when possible so users do not have to
+  // supply a YAML override for every Bucharest party.
+  const city =
+    county === 'RO-B' ? (bucharestSectorFromAddress(company.address) ?? ADDRESS_PLACEHOLDER) : ADDRESS_PLACEHOLDER;
   return {
     registrationName: company.name,
     companyId: cui,
     vatNumber,
     address: {
       street,
-      city: ADDRESS_PLACEHOLDER,
+      city,
       postalZone,
       county,
       countryCode: 'RO',
