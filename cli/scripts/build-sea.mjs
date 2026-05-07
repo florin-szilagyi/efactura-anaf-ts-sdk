@@ -43,11 +43,17 @@ function optionValue(name) {
   return args[idx + 1];
 }
 
-const bundlePath = optionValue('--bundle') ?? path.join(cliRoot, 'dist', 'bin', 'anaf-cli.cjs');
-const nodeBinaryPath = optionValue('--node-binary') ?? process.execPath;
+// Resolve all path args against the caller's cwd so they survive the
+// `cwd: cliRoot` we pass to execFileSync below. The SEA config gets written
+// with absolute paths regardless of how the script was invoked.
+const resolveFromCwd = (p) => (p ? path.resolve(process.cwd(), p) : undefined);
+
+const bundlePath =
+  resolveFromCwd(optionValue('--bundle')) ?? path.join(cliRoot, 'dist', 'bin', 'anaf-cli.cjs');
+const nodeBinaryPath = resolveFromCwd(optionValue('--node-binary')) ?? process.execPath;
 const defaultOutName = process.platform === 'win32' ? 'anaf-cli.exe' : 'anaf-cli';
 const outPath =
-  optionValue('--output') ??
+  resolveFromCwd(optionValue('--output')) ??
   path.join(cliRoot, 'dist', 'sea', `${process.platform}-${process.arch}`, defaultOutName);
 
 if (!fs.existsSync(bundlePath)) {
